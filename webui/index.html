@@ -55,9 +55,14 @@
   .mode-switch button.active { background: var(--accent); color: #0b0d12; }
   .mode-switch button:hover:not(.active) { background: var(--panel-2); color: var(--text); }
 
-  .view-tabs { display: flex; gap: 4px; margin-left: auto; }
-  .view-tabs button { padding: 8px 14px; font-size: 12.5px; }
-  .view-tabs button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .mode-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+  .mode-tabs button {
+    flex: 1; padding: 16px; font-size: 15px; font-weight: 700; border-radius: var(--radius-sm);
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .mode-tabs button .sub { font-size: 11.5px; font-weight: 500; color: var(--muted); }
+  .mode-tabs button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .mode-tabs button.active .sub { color: var(--accent); opacity: 0.8; }
 
   .status-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 16px; }
   .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.8s linear infinite; display: none; flex-shrink: 0; }
@@ -104,15 +109,14 @@
   .tag { background: var(--panel-2); border-radius: 5px; padding: 2px 8px; }
   .deck-verdict { font-size: 12.5px; color: var(--muted); font-style: italic; line-height: 1.4; }
 
-  .trim-panel { background: var(--panel-2); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-  .trim-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .trim-label { font-size: 11.5px; color: var(--muted); font-weight: 600; width: 46px; }
-  .trim-group { display: flex; align-items: center; gap: 2px; }
-  .trim-btn {
-    width: 30px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel);
-    color: var(--text); font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center;
+  .trim-panel { background: var(--panel-2); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .trim-line { display: flex; align-items: center; gap: 10px; }
+  .trim-label { font-size: 11.5px; color: var(--muted); font-weight: 600; width: 40px; flex-shrink: 0; }
+  .trim-slider {
+    flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px;
   }
-  .trim-btn:hover:not(:disabled) { background: var(--border); }
+  .trim-slider:disabled { opacity: 0.5; cursor: default; }
+  .trim-value { font-size: 11.5px; color: var(--muted); width: 38px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
   .deck-actions { display: flex; gap: 10px; }
   .deck-actions button { flex: 1; padding: 13px; font-size: 14px; font-weight: 700; border-radius: 12px; }
@@ -155,10 +159,6 @@
     </div>
     <button id="analyzeBtn" class="primary">Analizar</button>
     <button id="reanalyzeBtn" class="secondary">Re-analizar</button>
-    <div class="view-tabs">
-      <button id="tabDeck" class="active">Revisar</button>
-      <button id="tabGrid">Ver todos</button>
-    </div>
   </div>
   <div class="header-row" style="margin-top: 10px;">
     <input type="file" id="fileUpload" accept="video/*" style="display:none">
@@ -174,6 +174,10 @@
   </div>
 </header>
 <main>
+  <div class="mode-tabs">
+    <button id="tabDeck" class="active">👆 Modo Descarte<span class="sub">uno por uno, elegís sí/no</span></button>
+    <button id="tabGrid">🎬 Modo Multicámara<span class="sub">todos los clips juntos</span></button>
+  </div>
   <div id="content" class="empty">Elegí un video y apretá Analizar.</div>
 </main>
 
@@ -198,17 +202,30 @@ const ytBtn = document.getElementById('ytBtn');
 const uploadStatus = document.getElementById('uploadStatus');
 
 let useVisual = false;
-let viewMode = 'deck';
+let viewMode = localStorage.getItem('viewMode') || 'deck';
 let polling = null;
 let clips = [];
 let deckPos = 0;
 let currentVideoStem = null;
 let currentCategory = null;
 
+if (viewMode === 'grid') {
+  tabGrid.classList.add('active');
+  tabDeck.classList.remove('active');
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  localStorage.setItem('viewMode', mode);
+  tabDeck.classList.toggle('active', mode === 'deck');
+  tabGrid.classList.toggle('active', mode === 'grid');
+  render();
+}
+
 modeAudio.onclick = () => { useVisual = false; modeAudio.classList.add('active'); modeVisual.classList.remove('active'); };
 modeVisual.onclick = () => { useVisual = true; modeVisual.classList.add('active'); modeAudio.classList.remove('active'); };
-tabDeck.onclick = () => { viewMode = 'deck'; tabDeck.classList.add('active'); tabGrid.classList.remove('active'); render(); };
-tabGrid.onclick = () => { viewMode = 'grid'; tabGrid.classList.add('active'); tabDeck.classList.remove('active'); render(); };
+tabDeck.onclick = () => setViewMode('deck');
+tabGrid.onclick = () => setViewMode('grid');
 categorySelect.onchange = () => { if (videoSelect.value) loadCandidates(videoSelect.value); };
 
 function setBusy(busy, pct) {
@@ -346,17 +363,13 @@ function renderDeck() {
           <div class="trim-panel">
             <div class="trim-line">
               <span class="trim-label">Inicio</span>
-              <div class="trim-group">
-                <button class="trim-btn" data-field="start" data-delta="1" title="Empieza 1s más tarde">✂ Recortar</button>
-                <button class="trim-btn" data-field="start" data-delta="-1" title="Empieza 1s más temprano">↔ Extender</button>
-              </div>
+              <input type="range" class="trim-slider" data-field="start" min="-5" max="5" step="0.5" value="0" title="Arrastrá para mover dónde arranca el clip">
+              <span class="trim-value" data-field="start">0s</span>
             </div>
             <div class="trim-line">
               <span class="trim-label">Final</span>
-              <div class="trim-group">
-                <button class="trim-btn" data-field="end" data-delta="-1" title="Termina 1s antes">✂ Recortar</button>
-                <button class="trim-btn" data-field="end" data-delta="1" title="Termina 1s después">↔ Extender</button>
-              </div>
+              <input type="range" class="trim-slider" data-field="end" min="-5" max="5" step="0.5" value="0" title="Arrastrá para mover dónde termina el clip">
+              <span class="trim-value" data-field="end">0s</span>
             </div>
           </div>
           <div class="deck-actions">
@@ -378,8 +391,19 @@ function renderDeck() {
     if (ok) { render(); setTimeout(() => { deckPos++; render(); }, 600); }
   };
 
-  content.querySelectorAll('.trim-btn').forEach(btn => {
-    btn.onclick = () => adjustTrim(c, btn.dataset.field, parseFloat(btn.dataset.delta));
+  content.querySelectorAll('.trim-slider').forEach(slider => {
+    const valueLabel = content.querySelector(`.trim-value[data-field="${slider.dataset.field}"]`);
+    slider.oninput = () => {
+      const v = parseFloat(slider.value);
+      valueLabel.textContent = (v > 0 ? '+' : '') + v + 's';
+    };
+    slider.onchange = async () => {
+      const delta = parseFloat(slider.value);
+      if (delta === 0) return;
+      await adjustTrim(c, slider.dataset.field, delta);
+      slider.value = 0;
+      valueLabel.textContent = '0s';
+    };
   });
 }
 
@@ -409,12 +433,12 @@ async function useCandidate(c, btn) {
 async function adjustTrim(c, field, delta) {
   const body = field === 'start' ? { delta_start: delta } : { delta_end: delta };
   body.category = currentCategory;
-  document.querySelectorAll('.trim-btn').forEach(b => b.disabled = true);
+  document.querySelectorAll('.trim-slider').forEach(s => s.disabled = true);
   const res = await fetch(`/api/adjust/${currentVideoStem}/${c.index}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const data = await res.json();
-  document.querySelectorAll('.trim-btn').forEach(b => b.disabled = false);
+  document.querySelectorAll('.trim-slider').forEach(s => s.disabled = false);
   if (data.preview_url) {
     c.preview_url = data.preview_url;
     c.duration = data.duration;
