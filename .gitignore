@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.claude/
+data/input/
+data/transcripts/
+data/clips/
+data/tmp/
+!data/input/.gitkeep
+!data/transcripts/.gitkeep
+!data/clips/.gitkeep
+!data/tmp/.gitkeep
