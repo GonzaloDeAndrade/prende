@@ -243,11 +243,20 @@ def get_candidates(video_stem: str):
         c["duration"] = round(sum(e - s for s, e in c["parts"]), 1)
         c["has_original"] = bool(c.get("original_parts"))
         out_path = _final_path(video_stem, category, i, c["title"])
-        c["rendered_url"] = f"/clips/{video_stem}/{category}/{out_path.name}" if out_path.exists() else None
+        c["rendered_url"] = (
+            f"/clips/{video_stem}/{category}/{out_path.name}?t={int(out_path.stat().st_mtime)}"
+            if out_path.exists() else None
+        )
         preview_path = _preview_path(video_stem, category, i, c["title"])
-        c["preview_url"] = f"/previews/{video_stem}/{category}/{preview_path.name}" if preview_path.exists() else None
+        c["preview_url"] = (
+            f"/previews/{video_stem}/{category}/{preview_path.name}?t={int(preview_path.stat().st_mtime)}"
+            if preview_path.exists() else None
+        )
         strip_path = _filmstrip_path(video_stem, category, i, c["title"])
-        c["filmstrip_url"] = f"/previews/{video_stem}/{category}/{strip_path.name}" if strip_path.exists() else None
+        c["filmstrip_url"] = (
+            f"/previews/{video_stem}/{category}/{strip_path.name}?t={int(strip_path.stat().st_mtime)}"
+            if strip_path.exists() else None
+        )
     return jsonify(clips)
 
 
