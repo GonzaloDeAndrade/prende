@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 import threading
 import traceback
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,7 @@ from clip_engine.transcribe import transcribe
 app = Flask(__name__)
 
 _jobs: dict[str, dict[str, Any]] = {}
+_downloads: dict[str, dict[str, Any]] = {}
 
 
 def _slugify(text: str) -> str:
@@ -66,6 +70,62 @@ def _job_key(video_stem: str, category: str) -> str:
 @app.route("/")
 def index():
     return send_from_directory(Path(__file__).parent / "webui", "index.html")
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload_video():
+    if "file" not in request.files:
+        return jsonify({"error": "no se mandó ningún archivo"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "archivo sin nombre"}), 400
+    stem = _slugify(Path(f.filename).stem)
+    if not stem:
+        return jsonify({"error": "nombre de archivo inválido"}), 400
+    dest = INPUT_DIR / f"{stem}.mp4"
+    f.save(dest)
+    return jsonify({"stem": stem, "name": dest.name})
+
+
+def _run_youtube_download(job_id: str, url: str) -> None:
+    try:
+        _downloads[job_id] = {"status": "descargando (puede tardar varios minutos)", "error": None, "stem": None}
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "-f", "bv*[height<=1080]+ba/b[height<=1080]",
+            "-o", str(INPUT_DIR / "%(id)s.%(ext)s"),
+            "--merge-output-format", "mp4",
+            "--restrict-filenames",
+            "--print", "after_move:filepath",
+            url,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr[-2000:] or "yt-dlp falló")
+        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+        if not lines:
+            raise RuntimeError("yt-dlp no devolvió la ruta del archivo descargado")
+        stem = Path(lines[-1]).stem
+        _downloads[job_id] = {"status": "listo", "error": None, "stem": stem}
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _downloads[job_id] = {"status": "error", "error": str(exc), "stem": None}
+
+
+@app.route("/api/download_youtube", methods=["POST"])
+def download_youtube():
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "falta la url"}), 400
+    job_id = uuid.uuid4().hex[:12]
+    threading.Thread(target=_run_youtube_download, args=(job_id, url), daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/download_status/<job_id>")
+def download_status(job_id: str):
+    return jsonify(_downloads.get(job_id, {"status": "sin iniciar", "error": None, "stem": None}))
 
 
 @app.route("/api/videos")

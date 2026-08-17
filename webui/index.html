@@ -28,12 +28,14 @@
   .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
   h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; }
 
-  select, button {
+  select, button, input[type="text"] {
     background: var(--panel); color: var(--text); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 9px 14px; font-size: 13.5px;
     cursor: pointer; transition: background 0.15s, border-color 0.15s, opacity 0.15s, transform 0.1s;
     font-family: inherit;
   }
+  input[type="text"] { cursor: text; min-width: 260px; }
+  input[type="text"]:focus { outline: none; border-color: var(--accent); }
   select { min-width: 200px; }
   select:hover, button:hover:not(:disabled) { border-color: #3d4256; }
   button.primary { background: var(--accent); border: none; font-weight: 600; color: #0b0d12; }
@@ -158,6 +160,13 @@
       <button id="tabGrid">Ver todos</button>
     </div>
   </div>
+  <div class="header-row" style="margin-top: 10px;">
+    <input type="file" id="fileUpload" accept="video/*" style="display:none">
+    <button id="uploadBtn" class="secondary">📁 Subir video</button>
+    <input type="text" id="ytUrl" placeholder="o pegá un link de YouTube...">
+    <button id="ytBtn" class="secondary">⬇ Descargar</button>
+    <span id="uploadStatus" style="font-size:12.5px;color:var(--muted);"></span>
+  </div>
   <div class="status-row">
     <span class="spinner" id="statusSpinner"></span>
     <span id="status"></span>
@@ -182,6 +191,11 @@ const statusSpinner = document.getElementById('statusSpinner');
 const progressBar = document.getElementById('progressBar');
 const progressFill = document.getElementById('progressFill');
 const content = document.getElementById('content');
+const fileUpload = document.getElementById('fileUpload');
+const uploadBtn = document.getElementById('uploadBtn');
+const ytUrl = document.getElementById('ytUrl');
+const ytBtn = document.getElementById('ytBtn');
+const uploadStatus = document.getElementById('uploadStatus');
 
 let useVisual = false;
 let viewMode = 'deck';
@@ -218,6 +232,70 @@ async function loadVideos() {
     videoSelect.value = withCandidates.stem;
     loadCandidates(withCandidates.stem);
   }
+}
+
+async function selectFreshVideo(stem) {
+  await loadVideos();
+  videoSelect.value = stem;
+  currentVideoStem = null;
+  currentCategory = null;
+  clips = [];
+  content.className = 'empty';
+  content.textContent = 'Video listo. Elegí categoría y apretá Analizar.';
+}
+
+uploadBtn.onclick = () => fileUpload.click();
+
+fileUpload.onchange = async () => {
+  const file = fileUpload.files[0];
+  if (!file) return;
+  uploadStatus.textContent = 'Subiendo...';
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/upload', { method: 'POST', body: formData });
+  const data = await res.json();
+  fileUpload.value = '';
+  if (data.stem) {
+    uploadStatus.textContent = 'Listo: ' + data.name;
+    await selectFreshVideo(data.stem);
+  } else {
+    uploadStatus.textContent = 'Error: ' + (data.error || '?');
+  }
+};
+
+ytBtn.onclick = async () => {
+  const url = ytUrl.value.trim();
+  if (!url) return;
+  ytBtn.disabled = true;
+  uploadStatus.textContent = 'Descargando de YouTube (puede tardar varios minutos)...';
+  const res = await fetch('/api/download_youtube', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
+  });
+  const data = await res.json();
+  if (!data.job_id) {
+    uploadStatus.textContent = 'Error: ' + (data.error || '?');
+    ytBtn.disabled = false;
+    return;
+  }
+  pollDownload(data.job_id);
+};
+
+function pollDownload(jobId) {
+  const iv = setInterval(async () => {
+    const res = await fetch(`/api/download_status/${jobId}`);
+    const data = await res.json();
+    uploadStatus.textContent = data.status;
+    if (data.status === 'listo') {
+      clearInterval(iv);
+      ytBtn.disabled = false;
+      ytUrl.value = '';
+      if (data.stem) await selectFreshVideo(data.stem);
+    } else if (data.status === 'error') {
+      clearInterval(iv);
+      ytBtn.disabled = false;
+      uploadStatus.textContent = 'Error: ' + data.error;
+    }
+  }, 3000);
 }
 
 function render() {
@@ -362,10 +440,12 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- GRID ----------
+function cardSig(c) { return `${c.preview_url}:${c.rendered_url}`; }
+
 function renderGrid() {
   content.className = 'grid';
   content.innerHTML = clips.map((c, i) => `
-    <div class="card ${c.rendered_url ? 'done' : ''}" data-index="${c.index}">
+    <div class="card ${c.rendered_url ? 'done' : ''}" data-index="${c.index}" data-sig="${cardSig(c)}">
       <div class="card-top">
         <div class="card-title">${c.title}</div>
         ${i < 2 ? '<div class="top-pick" style="position:static">🔥</div>' : ''}
@@ -387,6 +467,24 @@ function renderGrid() {
   });
 }
 
+// Actualización quirúrgica de la grilla: solo toca las cards cuyo preview o
+// versión final cambiaron desde la última vez, para no interrumpir un video
+// que se está reproduciendo en otra card mientras las demás siguen generando.
+function patchGrid() {
+  clips.forEach(c => {
+    const card = content.querySelector(`.card[data-index="${c.index}"]`);
+    if (!card) return;
+    const sig = cardSig(c);
+    if (card.dataset.sig === sig) return;
+    card.dataset.sig = sig;
+    card.classList.toggle('done', !!c.rendered_url);
+    const frame = card.querySelector('.video-frame');
+    if (frame) {
+      frame.innerHTML = (c.rendered_url ? '<div class="final-badge">✓ final</div>' : '') + videoInner(c);
+    }
+  });
+}
+
 // ---------- DATA LOADING ----------
 async function loadCandidates(videoStem, opts = {}) {
   const silent = !!opts.silent;
@@ -401,11 +499,18 @@ async function loadCandidates(videoStem, opts = {}) {
   currentCategory = category;
   if (isNewVideo) deckPos = 0;
 
-  const sigBefore = (silent && !isNewVideo) ? visibleSignature() : null;
+  const sigBefore = (silent && !isNewVideo && viewMode === 'deck') ? visibleSignature() : null;
   clips = data;
-  const sigAfter = (silent && !isNewVideo) ? visibleSignature() : null;
+  const sigAfter = (silent && !isNewVideo && viewMode === 'deck') ? visibleSignature() : null;
 
-  if (!silent || isNewVideo || sigBefore !== sigAfter) {
+  if (!silent || isNewVideo) {
+    render();
+  } else if (viewMode === 'grid') {
+    // La grilla muestra todas las cards a la vez — parchamos solo las que
+    // cambiaron en vez de reconstruir todo, así no cortamos un video que
+    // se está reproduciendo en otra card mientras el resto sigue generando.
+    patchGrid();
+  } else if (sigBefore !== sigAfter) {
     render();
   }
 
