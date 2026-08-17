@@ -162,6 +162,28 @@ def render_preview(
     return out_path
 
 
+_FILMSTRIP_THUMBS = 12
+_FILMSTRIP_THUMB_WIDTH = 80
+
+
+def render_filmstrip(preview_path: Path, out_path: Path, duration: float, n: int = _FILMSTRIP_THUMBS) -> Path:
+    """Tira horizontal de N miniaturas del clip (una imagen sola, en tile),
+    para mostrarla de fondo en la barra de recorte y que se vea el contenido
+    real del video en vez de una barra abstracta.
+    """
+    rate = n / max(duration, 0.5)
+    cmd = [
+        "ffmpeg", "-y", "-v", "error", "-i", str(preview_path),
+        "-vf", f"fps={rate:.4f},scale={_FILMSTRIP_THUMB_WIDTH}:-1,tile={n}x1",
+        "-frames:v", "1",
+        str(out_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg falló generando filmstrip de {out_path.name}:\n{result.stderr[-3000:]}")
+    return out_path
+
+
 def render_clip(
     source_video: Path,
     parts: list[tuple[float, float]],

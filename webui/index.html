@@ -109,14 +109,25 @@
   .tag { background: var(--panel-2); border-radius: 5px; padding: 2px 8px; }
   .deck-verdict { font-size: 12.5px; color: var(--muted); font-style: italic; line-height: 1.4; }
 
-  .trim-panel { background: var(--panel-2); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
-  .trim-line { display: flex; align-items: center; gap: 10px; }
-  .trim-label { font-size: 11.5px; color: var(--muted); font-weight: 600; width: 76px; flex-shrink: 0; }
-  .trim-slider {
-    flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px;
+  .trim-panel { display: flex; flex-direction: column; gap: 6px; }
+  .trim-panel-empty { display: none; }
+
+  .scrubber {
+    position: relative; width: 100%; height: 48px; border-radius: 8px; overflow: hidden;
+    background: #000; touch-action: none;
   }
-  .trim-slider:disabled { opacity: 0.5; cursor: default; }
-  .trim-value { font-size: 11.5px; color: var(--muted); width: 38px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .scrubber img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
+  .scrub-mask { position: absolute; top: 0; bottom: 0; background: rgba(0,0,0,0.68); pointer-events: none; }
+  .scrub-mask.left { left: 0; }
+  .scrub-mask.right { right: 0; }
+  .scrub-handle {
+    position: absolute; top: 0; bottom: 0; width: 14px; margin-left: -7px;
+    background: var(--accent); border-radius: 4px; cursor: ew-resize; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 2px rgba(11,13,18,0.65);
+  }
+  .scrub-handle::after { content: ''; width: 3px; height: 18px; background: rgba(11,13,18,0.75); border-radius: 2px; }
+  .scrub-times { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .trim-apply {
     width: 100%; padding: 8px; font-size: 12.5px; font-weight: 700;
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
@@ -345,70 +356,114 @@ function videoInner(c) {
 }
 
 function trimPanelHtml(c) {
-  const ready = !!c.preview_url;
-  const half = ready ? Math.max(1, Math.min(15, c.duration / 2)).toFixed(1) : 5;
-  const dis = ready ? '' : 'disabled';
+  if (!c.preview_url || !c.filmstrip_url) {
+    return `<div class="trim-panel trim-panel-empty"></div>`;
+  }
   return `
     <div class="trim-panel">
-      <div class="trim-line">
-        <span class="trim-label">✂ Inicio</span>
-        <input type="range" class="trim-slider" data-field="start" min="0" max="${half}" step="0.1" value="0" ${dis}>
-        <span class="trim-value" data-field="start">0.0s</span>
+      <div class="scrubber" data-duration="${c.duration}">
+        <img src="${c.filmstrip_url}" draggable="false">
+        <div class="scrub-mask left" style="width:0%"></div>
+        <div class="scrub-mask right" style="width:0%"></div>
+        <div class="scrub-handle left" data-field="start" style="left:0%"></div>
+        <div class="scrub-handle right" data-field="end" style="left:100%"></div>
       </div>
-      <div class="trim-line">
-        <span class="trim-label">✂ Final</span>
-        <input type="range" class="trim-slider" data-field="end" min="0" max="${half}" step="0.1" value="0" ${dis}>
-        <span class="trim-value" data-field="end">0.0s</span>
+      <div class="scrub-times">
+        <span class="scrub-time" data-field="start">0.0s</span>
+        <span class="scrub-time" data-field="end">${c.duration.toFixed(1)}s</span>
       </div>
       <button class="trim-apply" disabled>Aplicar corte</button>
     </div>
   `;
 }
 
-// Arrastrar el slider mueve el punto de reproducción del preview a esa
-// posición exacta (para ver dónde vas a cortar antes de confirmar). El botón
-// "Aplicar corte" manda los dos deltas juntos al servidor.
+// Tira de miniaturas real del clip con dos manijas arrastrables (como un
+// editor de video): arrastrar mueve el punto de reproducción del preview a
+// esa posición exacta para ver dónde vas a cortar. "Aplicar corte" recién
+// ahí manda los dos extremos juntos al servidor.
 function attachTrim(cardEl, c, onApplied) {
+  const scrubber = cardEl.querySelector('.scrubber');
   const applyBtn = cardEl.querySelector('.trim-apply');
-  if (!applyBtn) return;
-  const sliders = cardEl.querySelectorAll('.trim-slider');
-  const pending = { start: 0, end: 0 };
+  if (!scrubber || !applyBtn) return;
 
-  sliders.forEach(slider => {
-    const field = slider.dataset.field;
-    const valueLabel = cardEl.querySelector(`.trim-value[data-field="${field}"]`);
-    slider.oninput = () => {
-      const v = parseFloat(slider.value);
-      pending[field] = v;
-      valueLabel.textContent = v.toFixed(1) + 's';
-      const video = cardEl.querySelector('video');
-      if (video) video.currentTime = field === 'start' ? v : Math.max(0, c.duration - v);
-      const total = pending.start + pending.end;
-      applyBtn.disabled = total === 0;
-      applyBtn.classList.toggle('pending', total > 0);
-      applyBtn.textContent = total > 0 ? `Aplicar corte (-${total.toFixed(1)}s)` : 'Aplicar corte';
+  const duration = c.duration;
+  let startFrac = 0, endFrac = 1;
+  const leftHandle = scrubber.querySelector('.scrub-handle.left');
+  const rightHandle = scrubber.querySelector('.scrub-handle.right');
+  const leftMask = scrubber.querySelector('.scrub-mask.left');
+  const rightMask = scrubber.querySelector('.scrub-mask.right');
+  const startLabel = cardEl.querySelector('.scrub-time[data-field="start"]');
+  const endLabel = cardEl.querySelector('.scrub-time[data-field="end"]');
+
+  function updateUI() {
+    leftHandle.style.left = (startFrac * 100) + '%';
+    rightHandle.style.left = (endFrac * 100) + '%';
+    leftMask.style.width = (startFrac * 100) + '%';
+    rightMask.style.width = ((1 - endFrac) * 100) + '%';
+    startLabel.textContent = (startFrac * duration).toFixed(1) + 's';
+    endLabel.textContent = (endFrac * duration).toFixed(1) + 's';
+    const changed = startFrac > 0.003 || endFrac < 0.997;
+    applyBtn.disabled = !changed;
+    applyBtn.classList.toggle('pending', changed);
+    applyBtn.textContent = changed
+      ? `Aplicar corte (${(startFrac * duration).toFixed(1)}s – ${(endFrac * duration).toFixed(1)}s)`
+      : 'Aplicar corte';
+  }
+
+  function seekTo(seconds) {
+    const video = cardEl.querySelector('video');
+    if (video) video.currentTime = seconds;
+  }
+
+  function startDrag(isLeft) {
+    const onMove = (e) => {
+      const rect = scrubber.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      let frac = (clientX - rect.left) / rect.width;
+      frac = Math.max(0, Math.min(1, frac));
+      if (isLeft) {
+        startFrac = Math.max(0, Math.min(frac, endFrac - 0.02));
+        seekTo(startFrac * duration);
+      } else {
+        endFrac = Math.min(1, Math.max(frac, startFrac + 0.02));
+        seekTo(endFrac * duration);
+      }
+      updateUI();
     };
-  });
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  leftHandle.onpointerdown = (e) => { e.preventDefault(); startDrag(true); };
+  rightHandle.onpointerdown = (e) => { e.preventDefault(); startDrag(false); };
 
   applyBtn.onclick = async () => {
-    if (pending.start === 0 && pending.end === 0) return;
+    if (startFrac <= 0.003 && endFrac >= 0.997) return;
     applyBtn.disabled = true;
     applyBtn.textContent = 'Cortando...';
-    sliders.forEach(s => s.disabled = true);
     const body = { category: currentCategory };
-    if (pending.start) body.delta_start = pending.start;
-    if (pending.end) body.delta_end = -pending.end;
+    const deltaStart = startFrac * duration;
+    const deltaEnd = -(1 - endFrac) * duration;
+    if (deltaStart > 0.05) body.delta_start = deltaStart;
+    if (deltaEnd < -0.05) body.delta_end = deltaEnd;
     const res = await fetch(`/api/adjust/${currentVideoStem}/${c.index}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     const data = await res.json();
     if (data.preview_url) {
       c.preview_url = data.preview_url;
+      c.filmstrip_url = data.filmstrip_url;
       c.duration = data.duration;
       c.rendered_url = null; // quedó desactualizada, hay que regenerar
     }
     if (onApplied) onApplied();
   };
+
+  updateUI();
 }
 
 async function useCandidate(c, btn) {

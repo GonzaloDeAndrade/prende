@@ -21,7 +21,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from clip_engine.analyze import analyze
 from clip_engine.config import CLIPS_DIR, INPUT_DIR, TMP_DIR, TRANSCRIPTS_DIR
-from clip_engine.cutter import render_clip, render_preview
+from clip_engine.cutter import render_clip, render_filmstrip, render_preview
 from clip_engine.subtitles import build_clip_subtitles
 from clip_engine.transcribe import transcribe
 
@@ -52,6 +52,11 @@ def _preview_dir(video_stem: str, category: str) -> Path:
 def _preview_path(video_stem: str, category: str, index: int, title: str) -> Path:
     slug = _slugify(title)
     return _preview_dir(video_stem, category) / f"{index:02d}_{slug}.mp4"
+
+
+def _filmstrip_path(video_stem: str, category: str, index: int, title: str) -> Path:
+    slug = _slugify(title)
+    return _preview_dir(video_stem, category) / f"{index:02d}_{slug}_strip.jpg"
 
 
 def _final_dir(video_stem: str, category: str) -> Path:
@@ -148,12 +153,15 @@ def _generate_previews(video_stem: str, category: str, transcript: dict, clips: 
     for i, clip in enumerate(clips):
         _jobs[job_key] = {"status": f"generando vistas previas ({i + 1}/{len(clips)})", "error": None}
         out_path = _preview_path(video_stem, category, i, clip["title"])
-        if out_path.exists():
+        strip_path = _filmstrip_path(video_stem, category, i, clip["title"])
+        if out_path.exists() and strip_path.exists():
             continue
         ass_path = preview_dir / f"{out_path.stem}.ass"
         parts = [tuple(p) for p in clip["parts"]]
+        duration = sum(e - s for s, e in parts)
         build_clip_subtitles(transcript["segments"], parts, ass_path)
         render_preview(video_path, parts, ass_path, out_path)
+        render_filmstrip(out_path, strip_path, duration)
 
 
 def _run_analysis(video_stem: str, use_visual: bool, category: str, force: bool) -> None:
@@ -237,6 +245,8 @@ def get_candidates(video_stem: str):
         c["rendered_url"] = f"/clips/{video_stem}/{category}/{out_path.name}" if out_path.exists() else None
         preview_path = _preview_path(video_stem, category, i, c["title"])
         c["preview_url"] = f"/previews/{video_stem}/{category}/{preview_path.name}" if preview_path.exists() else None
+        strip_path = _filmstrip_path(video_stem, category, i, c["title"])
+        c["filmstrip_url"] = f"/previews/{video_stem}/{category}/{strip_path.name}" if strip_path.exists() else None
     return jsonify(clips)
 
 
@@ -280,11 +290,15 @@ def adjust_candidate(video_stem: str, index: int):
     ass_path = preview_dir / f"{out_path.stem}.ass"
     parts_t = [tuple(p) for p in parts]
 
+    strip_path = _filmstrip_path(video_stem, category, index, clip["title"])
     try:
         build_clip_subtitles(transcript["segments"], parts_t, ass_path)
         if out_path.exists():
             out_path.unlink()
         render_preview(video_path, parts_t, ass_path, out_path)
+        if strip_path.exists():
+            strip_path.unlink()
+        render_filmstrip(out_path, strip_path, clip["duration"])
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
@@ -295,8 +309,10 @@ def adjust_candidate(video_stem: str, index: int):
     if final_path.exists():
         final_path.unlink()
 
+    t = int(out_path.stat().st_mtime)
     return jsonify({
-        "preview_url": f"/previews/{video_stem}/{category}/{out_path.name}?t={int(out_path.stat().st_mtime)}",
+        "preview_url": f"/previews/{video_stem}/{category}/{out_path.name}?t={t}",
+        "filmstrip_url": f"/previews/{video_stem}/{category}/{strip_path.name}?t={t}",
         "duration": clip["duration"],
     })
 
