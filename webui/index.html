@@ -111,12 +111,18 @@
 
   .trim-panel { background: var(--panel-2); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
   .trim-line { display: flex; align-items: center; gap: 10px; }
-  .trim-label { font-size: 11.5px; color: var(--muted); font-weight: 600; width: 40px; flex-shrink: 0; }
+  .trim-label { font-size: 11.5px; color: var(--muted); font-weight: 600; width: 76px; flex-shrink: 0; }
   .trim-slider {
     flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px;
   }
   .trim-slider:disabled { opacity: 0.5; cursor: default; }
   .trim-value { font-size: 11.5px; color: var(--muted); width: 38px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .trim-apply {
+    width: 100%; padding: 8px; font-size: 12.5px; font-weight: 700;
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  }
+  .trim-apply.pending { background: var(--accent); border: none; color: #0b0d12; }
+  .trim-apply:disabled { opacity: 0.5; }
 
   .deck-actions { display: flex; gap: 10px; }
   .deck-actions button { flex: 1; padding: 13px; font-size: 14px; font-weight: 700; border-radius: 12px; }
@@ -331,86 +337,78 @@ function visibleSignature() {
   return clips.map(c => `${c.index}:${c.preview_url}:${c.rendered_url}`).join('|');
 }
 
-// ---------- DECK ----------
-function renderDeck() {
-  content.className = '';
-  if (deckPos >= clips.length) deckPos = clips.length - 1;
-  if (deckPos < 0) {
-    content.innerHTML = `<div class="deck-empty"><div class="big">🎬</div>Ya revisaste todos los candidatos.<br><button class="secondary" style="margin-top:14px" onclick="deckPos=0;render()">Volver a mirarlos</button></div>`;
-    return;
-  }
-  const c = clips[deckPos];
-  const parts = c.parts.map(p => `${p[0].toFixed(1)}s–${p[1].toFixed(1)}s`).join(' + ');
-  const isTop = clips.indexOf(c) < 2;
-
-  content.innerHTML = `
-    <div class="deck">
-      <div class="deck-counter">${deckPos + 1} / ${clips.length}</div>
-      <div class="deck-stage">
-        <button class="secondary nav-arrow" id="prevBtn" ${deckPos === 0 ? 'disabled' : ''}>‹</button>
-        <div class="deck-card ${c.rendered_url ? 'done' : ''}" data-index="${c.index}">
-          <div class="deck-video-frame" id="deckFrame">
-            ${isTop ? '<div class="top-pick">🔥 recomendado</div>' : ''}
-            ${c.rendered_url ? '<div class="final-badge">✓ versión final</div>' : ''}
-            ${videoInner(c)}
-          </div>
-          <div class="deck-title">${c.title}</div>
-          <div class="deck-meta">
-            ${c.hook_type ? `<span class="tag">${c.hook_type}</span>` : ''}
-            <span class="tag" id="durTag">${c.duration}s</span>
-          </div>
-          ${c.verdict ? `<div class="deck-verdict">${c.verdict}</div>` : ''}
-          <div class="trim-panel">
-            <div class="trim-line">
-              <span class="trim-label">Inicio</span>
-              <input type="range" class="trim-slider" data-field="start" min="-5" max="5" step="0.5" value="0" title="Arrastrá para mover dónde arranca el clip">
-              <span class="trim-value" data-field="start">0s</span>
-            </div>
-            <div class="trim-line">
-              <span class="trim-label">Final</span>
-              <input type="range" class="trim-slider" data-field="end" min="-5" max="5" step="0.5" value="0" title="Arrastrá para mover dónde termina el clip">
-              <span class="trim-value" data-field="end">0s</span>
-            </div>
-          </div>
-          <div class="deck-actions">
-            <button class="btn-discard" id="discardBtn">✕ Descartar</button>
-            <button class="btn-use" id="useBtn">${c.rendered_url ? '✓ Regenerar' : '✓ Usar este'}</button>
-          </div>
-        </div>
-        <button class="secondary nav-arrow" id="nextBtn" ${deckPos === clips.length - 1 ? 'disabled' : ''}>›</button>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('prevBtn').onclick = () => { deckPos--; render(); };
-  document.getElementById('nextBtn').onclick = () => { deckPos++; render(); };
-  document.getElementById('discardBtn').onclick = () => { deckPos++; render(); };
-  document.getElementById('useBtn').onclick = async () => {
-    const btn = document.getElementById('useBtn');
-    const ok = await useCandidate(c, btn);
-    if (ok) { render(); setTimeout(() => { deckPos++; render(); }, 600); }
-  };
-
-  content.querySelectorAll('.trim-slider').forEach(slider => {
-    const valueLabel = content.querySelector(`.trim-value[data-field="${slider.dataset.field}"]`);
-    slider.oninput = () => {
-      const v = parseFloat(slider.value);
-      valueLabel.textContent = (v > 0 ? '+' : '') + v + 's';
-    };
-    slider.onchange = async () => {
-      const delta = parseFloat(slider.value);
-      if (delta === 0) return;
-      await adjustTrim(c, slider.dataset.field, delta);
-      slider.value = 0;
-      valueLabel.textContent = '0s';
-    };
-  });
-}
-
+// ---------- SHARED: video + recorte ----------
 function videoInner(c) {
   const src = c.rendered_url || c.preview_url;
   if (src) return `<video controls muted src="${src}"></video>`;
   return `<div class="preview-pending"><span class="spinner active"></span>generando vista previa...</div>`;
+}
+
+function trimPanelHtml(c) {
+  const ready = !!c.preview_url;
+  const half = ready ? Math.max(1, Math.min(15, c.duration / 2)).toFixed(1) : 5;
+  const dis = ready ? '' : 'disabled';
+  return `
+    <div class="trim-panel">
+      <div class="trim-line">
+        <span class="trim-label">✂ Inicio</span>
+        <input type="range" class="trim-slider" data-field="start" min="0" max="${half}" step="0.1" value="0" ${dis}>
+        <span class="trim-value" data-field="start">0.0s</span>
+      </div>
+      <div class="trim-line">
+        <span class="trim-label">✂ Final</span>
+        <input type="range" class="trim-slider" data-field="end" min="0" max="${half}" step="0.1" value="0" ${dis}>
+        <span class="trim-value" data-field="end">0.0s</span>
+      </div>
+      <button class="trim-apply" disabled>Aplicar corte</button>
+    </div>
+  `;
+}
+
+// Arrastrar el slider mueve el punto de reproducción del preview a esa
+// posición exacta (para ver dónde vas a cortar antes de confirmar). El botón
+// "Aplicar corte" manda los dos deltas juntos al servidor.
+function attachTrim(cardEl, c, onApplied) {
+  const applyBtn = cardEl.querySelector('.trim-apply');
+  if (!applyBtn) return;
+  const sliders = cardEl.querySelectorAll('.trim-slider');
+  const pending = { start: 0, end: 0 };
+
+  sliders.forEach(slider => {
+    const field = slider.dataset.field;
+    const valueLabel = cardEl.querySelector(`.trim-value[data-field="${field}"]`);
+    slider.oninput = () => {
+      const v = parseFloat(slider.value);
+      pending[field] = v;
+      valueLabel.textContent = v.toFixed(1) + 's';
+      const video = cardEl.querySelector('video');
+      if (video) video.currentTime = field === 'start' ? v : Math.max(0, c.duration - v);
+      const total = pending.start + pending.end;
+      applyBtn.disabled = total === 0;
+      applyBtn.classList.toggle('pending', total > 0);
+      applyBtn.textContent = total > 0 ? `Aplicar corte (-${total.toFixed(1)}s)` : 'Aplicar corte';
+    };
+  });
+
+  applyBtn.onclick = async () => {
+    if (pending.start === 0 && pending.end === 0) return;
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Cortando...';
+    sliders.forEach(s => s.disabled = true);
+    const body = { category: currentCategory };
+    if (pending.start) body.delta_start = pending.start;
+    if (pending.end) body.delta_end = -pending.end;
+    const res = await fetch(`/api/adjust/${currentVideoStem}/${c.index}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.preview_url) {
+      c.preview_url = data.preview_url;
+      c.duration = data.duration;
+      c.rendered_url = null; // quedó desactualizada, hay que regenerar
+    }
+    if (onApplied) onApplied();
+  };
 }
 
 async function useCandidate(c, btn) {
@@ -430,31 +428,55 @@ async function useCandidate(c, btn) {
   return false;
 }
 
-async function adjustTrim(c, field, delta) {
-  const body = field === 'start' ? { delta_start: delta } : { delta_end: delta };
-  body.category = currentCategory;
-  document.querySelectorAll('.trim-slider').forEach(s => s.disabled = true);
-  const res = await fetch(`/api/adjust/${currentVideoStem}/${c.index}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  document.querySelectorAll('.trim-slider').forEach(s => s.disabled = false);
-  if (data.preview_url) {
-    c.preview_url = data.preview_url;
-    c.duration = data.duration;
-    c.rendered_url = null; // quedó desactualizada, hay que regenerar
-    const frame = document.getElementById('deckFrame');
-    if (frame) {
-      const badge = frame.querySelector('.final-badge');
-      if (badge) badge.remove();
-      const old = frame.querySelector('video, .preview-pending');
-      if (old) old.outerHTML = `<video controls muted src="${c.preview_url}"></video>`;
-    }
-    const durTag = document.getElementById('durTag');
-    if (durTag) durTag.textContent = `${c.duration}s`;
-    const useBtn = document.getElementById('useBtn');
-    if (useBtn) useBtn.textContent = '✓ Usar este';
+// ---------- DECK ----------
+function renderDeck() {
+  content.className = '';
+  if (deckPos >= clips.length) deckPos = clips.length - 1;
+  if (deckPos < 0) {
+    content.innerHTML = `<div class="deck-empty"><div class="big">🎬</div>Ya revisaste todos los candidatos.<br><button class="secondary" style="margin-top:14px" onclick="deckPos=0;render()">Volver a mirarlos</button></div>`;
+    return;
   }
+  const c = clips[deckPos];
+  const isTop = clips.indexOf(c) < 2;
+
+  content.innerHTML = `
+    <div class="deck">
+      <div class="deck-counter">${deckPos + 1} / ${clips.length}</div>
+      <div class="deck-stage">
+        <button class="secondary nav-arrow" id="prevBtn" ${deckPos === 0 ? 'disabled' : ''}>‹</button>
+        <div class="deck-card ${c.rendered_url ? 'done' : ''}" data-index="${c.index}">
+          <div class="video-frame deck-video-frame">
+            ${isTop ? '<div class="top-pick">🔥 recomendado</div>' : ''}
+            ${c.rendered_url ? '<div class="final-badge">✓ versión final</div>' : ''}
+            ${videoInner(c)}
+          </div>
+          <div class="deck-title">${c.title}</div>
+          <div class="deck-meta">
+            ${c.hook_type ? `<span class="tag">${c.hook_type}</span>` : ''}
+            <span class="tag dur-tag">${c.duration}s</span>
+          </div>
+          ${c.verdict ? `<div class="deck-verdict">${c.verdict}</div>` : ''}
+          ${trimPanelHtml(c)}
+          <div class="deck-actions">
+            <button class="btn-discard" id="discardBtn">✕ Descartar</button>
+            <button class="btn-use">${c.rendered_url ? '✓ Regenerar' : '✓ Usar este'}</button>
+          </div>
+        </div>
+        <button class="secondary nav-arrow" id="nextBtn" ${deckPos === clips.length - 1 ? 'disabled' : ''}>›</button>
+      </div>
+    </div>
+  `;
+
+  const cardEl = content.querySelector('.deck-card');
+  document.getElementById('prevBtn').onclick = () => { deckPos--; render(); };
+  document.getElementById('nextBtn').onclick = () => { deckPos++; render(); };
+  document.getElementById('discardBtn').onclick = () => { deckPos++; render(); };
+  cardEl.querySelector('.btn-use').onclick = async () => {
+    const btn = cardEl.querySelector('.btn-use');
+    const ok = await useCandidate(c, btn);
+    if (ok) { renderDeck(); setTimeout(() => { deckPos++; render(); }, 600); }
+  };
+  attachTrim(cardEl, c, () => renderDeck());
 }
 
 document.addEventListener('keydown', (e) => {
@@ -476,19 +498,42 @@ function renderGrid() {
       </div>
       <div class="deck-meta">
         ${c.hook_type ? `<span class="tag">${c.hook_type}</span>` : ''}
-        <span class="tag">${c.duration}s</span>
+        <span class="tag dur-tag">${c.duration}s</span>
       </div>
       <div class="video-frame">
         ${c.rendered_url ? '<div class="final-badge">✓ final</div>' : ''}
         ${videoInner(c)}
       </div>
-      <button class="btn-use" data-index="${c.index}">${c.rendered_url ? '✓ Regenerar' : '✓ Usar este'}</button>
+      ${trimPanelHtml(c)}
+      <button class="btn-use">${c.rendered_url ? '✓ Regenerar' : '✓ Usar este'}</button>
     </div>
   `).join('');
-  content.querySelectorAll('.btn-use').forEach(btn => {
-    const c = clips.find(x => x.index == btn.dataset.index);
-    btn.onclick = async () => { await useCandidate(c, btn); renderGrid(); };
+  content.querySelectorAll('.card').forEach(cardEl => {
+    const c = clips.find(x => x.index == cardEl.dataset.index);
+    cardEl.querySelector('.btn-use').onclick = async () => {
+      const btn = cardEl.querySelector('.btn-use');
+      await useCandidate(c, btn);
+      refreshGridCard(cardEl, c);
+    };
+    attachTrim(cardEl, c, () => refreshGridCard(cardEl, c));
   });
+}
+
+// Actualiza una sola card de la grilla (video + panel de recorte + botón)
+// sin tocar el resto — se usa después de aplicar un corte, generar la
+// versión final, o cuando termina de generarse un preview en segundo plano.
+function refreshGridCard(cardEl, c) {
+  cardEl.classList.toggle('done', !!c.rendered_url);
+  cardEl.dataset.sig = cardSig(c);
+  const frame = cardEl.querySelector('.video-frame');
+  if (frame) frame.innerHTML = (c.rendered_url ? '<div class="final-badge">✓ final</div>' : '') + videoInner(c);
+  const durTag = cardEl.querySelector('.dur-tag');
+  if (durTag) durTag.textContent = `${c.duration}s`;
+  const trimPanel = cardEl.querySelector('.trim-panel');
+  if (trimPanel) trimPanel.outerHTML = trimPanelHtml(c);
+  const btn = cardEl.querySelector('.btn-use');
+  if (btn) { btn.textContent = c.rendered_url ? '✓ Regenerar' : '✓ Usar este'; btn.disabled = false; btn.onclick = async () => { await useCandidate(c, btn); refreshGridCard(cardEl, c); }; }
+  attachTrim(cardEl, c, () => refreshGridCard(cardEl, c));
 }
 
 // Actualización quirúrgica de la grilla: solo toca las cards cuyo preview o
@@ -497,15 +542,8 @@ function renderGrid() {
 function patchGrid() {
   clips.forEach(c => {
     const card = content.querySelector(`.card[data-index="${c.index}"]`);
-    if (!card) return;
-    const sig = cardSig(c);
-    if (card.dataset.sig === sig) return;
-    card.dataset.sig = sig;
-    card.classList.toggle('done', !!c.rendered_url);
-    const frame = card.querySelector('.video-frame');
-    if (frame) {
-      frame.innerHTML = (c.rendered_url ? '<div class="final-badge">✓ final</div>' : '') + videoInner(c);
-    }
+    if (!card || card.dataset.sig === cardSig(c)) return;
+    refreshGridCard(card, c);
   });
 }
 
