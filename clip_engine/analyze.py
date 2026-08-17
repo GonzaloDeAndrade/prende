@@ -304,11 +304,17 @@ def _clip_text(segments: list[dict[str, Any]], clip: dict[str, Any]) -> str:
 
 
 def _validate_ranking(
-    client: OpenAI, segments: list[dict[str, Any]], clips: list[dict[str, Any]],
+    client: OpenAI, segments: list[dict[str, Any]], clips: list[dict[str, Any]], category: str = "general",
 ) -> list[dict[str, Any]]:
     """Segunda pasada: compara los candidatos ENTRE SÍ (la primera pasada
     evalúa cada uno aislado) y filtra los que, puestos al lado de los demás,
     son claramente más flojos — aunque técnicamente encajen en una categoría.
+
+    Recibe el mismo `category` que la primera pasada: si no se le suma el
+    addendum acá también, esta segunda pasada juzga con el criterio genérico
+    (le exige "desarrollo claro", "remate", etc.) aunque la primera haya sido
+    más permisiva para el género — eso deshace en la validación lo que el
+    addendum logró en la selección.
     """
     has_multi_part = any(len(c["parts"]) > 1 for c in clips)
     if len(clips) <= settings.min_clips and not has_multi_part:
@@ -321,12 +327,13 @@ def _validate_ranking(
         for i, c in enumerate(clips)
     )
     user = RANKING_USER_TEMPLATE.format(candidates=listing)
+    system = RANKING_SYSTEM_PROMPT + CATEGORY_ADDENDUMS.get(category, "")
 
     print(f"[analyze] validando {len(clips)} candidatos entre sí...")
     response = client.chat.completions.create(
         model=settings.openai_model,
         messages=[
-            {"role": "system", "content": RANKING_SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         response_format={"type": "json_schema", "json_schema": RANKING_JSON_SCHEMA},
@@ -594,7 +601,7 @@ def analyze(
     if not clips:
         raise RuntimeError("El LLM no devolvió clips válidos. Revisá el transcript o el prompt.")
 
-    ranked = _validate_ranking(client, segments, clips)
+    ranked = _validate_ranking(client, segments, clips, category=category)
 
     if review:
         # Modo revisión: devolvemos TODOS los candidatos (con keep/score/
