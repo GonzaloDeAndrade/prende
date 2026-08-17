@@ -128,12 +128,18 @@
   }
   .scrub-handle::after { content: ''; width: 3px; height: 18px; background: rgba(11,13,18,0.75); border-radius: 2px; }
   .scrub-times { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .trim-buttons { display: flex; gap: 6px; }
   .trim-apply {
-    width: 100%; padding: 8px; font-size: 12.5px; font-weight: 700;
+    flex: 1; padding: 8px; font-size: 12.5px; font-weight: 700;
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
   }
   .trim-apply.pending { background: var(--accent); border: none; color: #0b0d12; }
   .trim-apply:disabled { opacity: 0.5; }
+  .trim-restore {
+    padding: 8px 10px; font-size: 12.5px; font-weight: 600;
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+  }
+  .trim-restore:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
 
   .deck-actions { display: flex; gap: 10px; }
   .deck-actions button { flex: 1; padding: 13px; font-size: 14px; font-weight: 700; border-radius: 12px; }
@@ -372,7 +378,10 @@ function trimPanelHtml(c) {
         <span class="scrub-time" data-field="start">0.0s</span>
         <span class="scrub-time" data-field="end">${c.duration.toFixed(1)}s</span>
       </div>
-      <button class="trim-apply" disabled>Aplicar corte</button>
+      <div class="trim-buttons">
+        <button class="trim-apply" disabled>Aplicar corte</button>
+        <button class="trim-restore" ${c.has_original ? '' : 'disabled'} title="Volver al corte original de la IA">↺ Restaurar</button>
+      </div>
     </div>
   `;
 }
@@ -458,10 +467,32 @@ function attachTrim(cardEl, c, onApplied) {
       c.preview_url = data.preview_url;
       c.filmstrip_url = data.filmstrip_url;
       c.duration = data.duration;
+      c.has_original = !!data.has_original;
       c.rendered_url = null; // quedó desactualizada, hay que regenerar
     }
     if (onApplied) onApplied();
   };
+
+  const restoreBtn = cardEl.querySelector('.trim-restore');
+  if (restoreBtn) {
+    restoreBtn.onclick = async () => {
+      restoreBtn.disabled = true;
+      restoreBtn.textContent = 'Restaurando...';
+      const res = await fetch(`/api/restore/${currentVideoStem}/${c.index}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: currentCategory }),
+      });
+      const data = await res.json();
+      if (data.preview_url) {
+        c.preview_url = data.preview_url;
+        c.filmstrip_url = data.filmstrip_url;
+        c.duration = data.duration;
+        c.has_original = !!data.has_original;
+        c.rendered_url = null;
+      }
+      if (onApplied) onApplied();
+    };
+  }
 
   updateUI();
 }

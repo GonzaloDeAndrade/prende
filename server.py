@@ -241,6 +241,7 @@ def get_candidates(video_stem: str):
     for i, c in enumerate(clips):
         c["index"] = i
         c["duration"] = round(sum(e - s for s, e in c["parts"]), 1)
+        c["has_original"] = bool(c.get("original_parts"))
         out_path = _final_path(video_stem, category, i, c["title"])
         c["rendered_url"] = f"/clips/{video_stem}/{category}/{out_path.name}" if out_path.exists() else None
         preview_path = _preview_path(video_stem, category, i, c["title"])
@@ -255,6 +256,41 @@ def serve_preview(video_stem: str, category: str, filename: str):
     return send_from_directory(_preview_dir(video_stem, category), filename)
 
 
+def _apply_new_parts(video_stem: str, category: str, index: int, clip: dict[str, Any], new_parts: list) -> dict[str, Any]:
+    """Recalcula preview + tira de miniaturas para un candidato con partes
+    nuevas, invalida la versión final vieja (quedaría desactualizada) y
+    devuelve la respuesta lista para la API. Compartido por "ajustar" y
+    "restaurar" — son la misma operación, solo cambian las partes de origen.
+    """
+    transcript = json.loads((TRANSCRIPTS_DIR / f"{video_stem}.json").read_text(encoding="utf-8"))
+    video_path = INPUT_DIR / f"{video_stem}.mp4"
+    preview_dir = _preview_dir(video_stem, category)
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    out_path = _preview_path(video_stem, category, index, clip["title"])
+    ass_path = preview_dir / f"{out_path.stem}.ass"
+    parts_t = [tuple(p) for p in new_parts]
+
+    strip_path = _filmstrip_path(video_stem, category, index, clip["title"])
+    build_clip_subtitles(transcript["segments"], parts_t, ass_path)
+    if out_path.exists():
+        out_path.unlink()
+    render_preview(video_path, parts_t, ass_path, out_path)
+    if strip_path.exists():
+        strip_path.unlink()
+    render_filmstrip(out_path, strip_path, clip["duration"])
+
+    final_path = _final_path(video_stem, category, index, clip["title"])
+    if final_path.exists():
+        final_path.unlink()
+
+    t = int(out_path.stat().st_mtime)
+    return {
+        "preview_url": f"/previews/{video_stem}/{category}/{out_path.name}?t={t}",
+        "filmstrip_url": f"/previews/{video_stem}/{category}/{strip_path.name}?t={t}",
+        "duration": clip["duration"],
+    }
+
+
 @app.route("/api/adjust/<video_stem>/<int:index>", methods=["POST"])
 def adjust_candidate(video_stem: str, index: int):
     """Corrige a mano el arranque/final de un candidato (unos segundos de
@@ -266,14 +302,18 @@ def adjust_candidate(video_stem: str, index: int):
     category = body.get("category", "general")
 
     candidates_path = _candidates_path(video_stem, category)
-    transcript_path = TRANSCRIPTS_DIR / f"{video_stem}.json"
-    if not candidates_path.exists() or not transcript_path.exists():
+    if not candidates_path.exists() or not (TRANSCRIPTS_DIR / f"{video_stem}.json").exists():
         return jsonify({"error": "no hay análisis para este video"}), 404
 
     clips = json.loads(candidates_path.read_text(encoding="utf-8"))
     if not (0 <= index < len(clips)):
         return jsonify({"error": "índice inválido"}), 400
     clip = clips[index]
+
+    # Guardamos el corte original de la IA la primera vez que se toca a
+    # mano, para poder volver atrás después con "Restaurar".
+    if "original_parts" not in clip:
+        clip["original_parts"] = clip["parts"]
 
     parts = [list(p) for p in clip["parts"]]
     parts[0][0] = max(0.0, parts[0][0] + delta_start)
@@ -282,39 +322,49 @@ def adjust_candidate(video_stem: str, index: int):
     clip["duration"] = round(sum(e - s for s, e in parts), 1)
     candidates_path.write_text(json.dumps(clips, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
-    video_path = INPUT_DIR / f"{video_stem}.mp4"
-    preview_dir = _preview_dir(video_stem, category)
-    preview_dir.mkdir(parents=True, exist_ok=True)
-    out_path = _preview_path(video_stem, category, index, clip["title"])
-    ass_path = preview_dir / f"{out_path.stem}.ass"
-    parts_t = [tuple(p) for p in parts]
-
-    strip_path = _filmstrip_path(video_stem, category, index, clip["title"])
     try:
-        build_clip_subtitles(transcript["segments"], parts_t, ass_path)
-        if out_path.exists():
-            out_path.unlink()
-        render_preview(video_path, parts_t, ass_path, out_path)
-        if strip_path.exists():
-            strip_path.unlink()
-        render_filmstrip(out_path, strip_path, clip["duration"])
+        result = _apply_new_parts(video_stem, category, index, clip, parts)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
 
-    # Si ya había una versión final generada con el recorte viejo, la
-    # borramos: si no, quedaría desactualizada y nadie se daría cuenta.
-    final_path = _final_path(video_stem, category, index, clip["title"])
-    if final_path.exists():
-        final_path.unlink()
+    result["has_original"] = True
+    return jsonify(result)
 
-    t = int(out_path.stat().st_mtime)
-    return jsonify({
-        "preview_url": f"/previews/{video_stem}/{category}/{out_path.name}?t={t}",
-        "filmstrip_url": f"/previews/{video_stem}/{category}/{strip_path.name}?t={t}",
-        "duration": clip["duration"],
-    })
+
+@app.route("/api/restore/<video_stem>/<int:index>", methods=["POST"])
+def restore_candidate(video_stem: str, index: int):
+    """Vuelve el candidato al corte original que eligió la IA, deshaciendo
+    cualquier ajuste manual hecho después."""
+    body = request.get_json(silent=True) or {}
+    category = body.get("category", "general")
+
+    candidates_path = _candidates_path(video_stem, category)
+    if not candidates_path.exists() or not (TRANSCRIPTS_DIR / f"{video_stem}.json").exists():
+        return jsonify({"error": "no hay análisis para este video"}), 404
+
+    clips = json.loads(candidates_path.read_text(encoding="utf-8"))
+    if not (0 <= index < len(clips)):
+        return jsonify({"error": "índice inválido"}), 400
+    clip = clips[index]
+
+    original = clip.get("original_parts")
+    if not original:
+        return jsonify({"error": "este clip no tiene ningún ajuste manual para deshacer"}), 400
+
+    clip["parts"] = original
+    clip["duration"] = round(sum(e - s for s, e in original), 1)
+    del clip["original_parts"]
+    candidates_path.write_text(json.dumps(clips, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    try:
+        result = _apply_new_parts(video_stem, category, index, clip, original)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+    result["has_original"] = False
+    return jsonify(result)
 
 
 @app.route("/api/render/<video_stem>/<int:index>", methods=["POST"])
