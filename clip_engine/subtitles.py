@@ -103,6 +103,9 @@ def _group_words(words: list[dict[str, Any]], per_caption: int) -> list[list[dic
     return groups
 
 
+_HIGHLIGHT_COLOR = "&H00FFFF&"  # amarillo (formato ASS &HBBGGRR&)
+
+
 def build_clip_subtitles(
     segments: list[dict[str, Any]],
     parts: list[tuple[float, float]],
@@ -115,6 +118,11 @@ def build_clip_subtitles(
     Cada parte se agrupa por separado (nunca se mezclan palabras de una parte
     con la siguiente en un mismo subtítulo) y se reubica en el tiempo según su
     posición en el clip final ya concatenado.
+
+    Estilo "karaoke": dentro de cada grupo de palabras se ve el grupo entero
+    fijo, pero la palabra que se está diciendo en ese instante queda resaltada
+    — un Dialogue por palabra (no uno por grupo), todos con el mismo texto de
+    grupo pero cambiando cuál palabra lleva el color de resaltado.
     """
     width = video_width or settings.output_width
     height = video_height or settings.output_height
@@ -135,12 +143,26 @@ def build_clip_subtitles(
         words = _words_in_window(segments, part_start, part_end)
         groups = _group_words(words, settings.words_per_caption)
         for group in groups:
-            g_start = offset + max(0.0, group[0]["start"] - part_start)
-            g_end = offset + max(g_start - offset + 0.05, group[-1]["end"] - part_start)
-            text = " ".join(w["word"].strip() for w in group).upper()
-            lines.append(
-                f"Dialogue: 0,{_fmt_ts(g_start)},{_fmt_ts(g_end)},Default,,0,0,0,,{text}\n"
-            )
+            tokens = [w["word"].strip().upper() for w in group]
+            n = len(group)
+            for i, w in enumerate(group):
+                w_start = offset + max(0.0, w["start"] - part_start)
+                if i + 1 < n:
+                    # Sin hueco entre palabras: el resaltado de la próxima
+                    # arranca justo donde termina esta, no en su timestamp
+                    # real (que suele tener micro-gaps que generan parpadeo).
+                    w_end = offset + max(w_start - offset + 0.02, group[i + 1]["start"] - part_start)
+                else:
+                    w_end = offset + max(w_start - offset + 0.05, w["end"] - part_start)
+
+                rendered = [
+                    f"{{\\c{_HIGHLIGHT_COLOR}}}{t}{{\\r}}" if j == i else t
+                    for j, t in enumerate(tokens)
+                ]
+                text = " ".join(rendered)
+                lines.append(
+                    f"Dialogue: 0,{_fmt_ts(w_start)},{_fmt_ts(w_end)},Default,,0,0,0,,{text}\n"
+                )
         offset += part_end - part_start
 
     out_path.write_text("".join(lines), encoding="utf-8")
