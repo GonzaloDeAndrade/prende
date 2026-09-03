@@ -39,10 +39,23 @@ class Settings:
     # Análisis de clips (OpenAI)
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    # Modelo aparte para el paso de VALIDACIÓN/ranking (el juicio final de
+    # qué clip queda) — ahí el costo extra de un modelo mejor es chico
+    # (solo texto, no imágenes: medido real, $0.005 con mini vs $0.08 con
+    # gpt-4o para un video de 39min) y es donde más importa que el criterio
+    # sea bueno. El escaneo visual (con imágenes, mucho volumen) se queda en
+    # openai_model — ahí SÍ multiplicaría el costo de forma prohibitiva
+    # (mismo video: $0.69 con mini vs $11.51 con gpt-4o, solo para escanear
+    # frames). 2026-08-21, pedido directo del usuario.
+    openai_ranking_model: str = os.getenv("OPENAI_RANKING_MODEL", "gpt-4o")
 
-    # Reglas de selección de clips
+    # Reglas de selección de clips. max subido de 30 a 35 el 2026-08-20: medido
+    # sobre 1380 clips reales ya publicados del corpus (bucket "clips" de
+    # data/research/manifest.json), la duración real tiene mediana 21.7s y
+    # p75 32.9s — con el tope viejo de 30s se estaba cortando por abajo un
+    # 25% de lo que el contenido exitoso real hace de forma natural.
     min_clip_seconds: int = int(os.getenv("MIN_CLIP_SECONDS", "10"))
-    max_clip_seconds: int = int(os.getenv("MAX_CLIP_SECONDS", "30"))
+    max_clip_seconds: int = int(os.getenv("MAX_CLIP_SECONDS", "35"))
     min_clips: int = int(os.getenv("MIN_CLIPS", "5"))
     max_clips: int = int(os.getenv("MAX_CLIPS", "10"))
 

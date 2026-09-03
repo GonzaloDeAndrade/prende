@@ -3,30 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Revisión de clips</title>
+<title>prendé — Revisión de clips</title>
+<link rel="icon" href="assets/logo-icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b0d12; --panel: #161922; --panel-2: #1d212c; --border: #2a2e3a;
-    --text: #eceef2; --muted: #8b90a0; --accent: #6c8cff; --accent-soft: rgba(108,140,255,0.15);
-    --good: #3ecf8e; --good-soft: rgba(62,207,142,0.15); --bad: #ff6b6b; --bad-soft: rgba(255,107,107,0.13);
-    --warn: #f5a623; --radius: 16px; --radius-sm: 10px;
+    --bg: #1b1614; --panel: #241e1b; --panel-2: #2e2620; --border: #3a3128;
+    --border-hover: #4a3e33;
+    --text: #fff3e6; --muted: #a89a8c;
+    --accent: #ff5a1f; --accent-hover: #e64f1b; --accent-soft: rgba(255,90,31,0.16);
+    --gold: #ffb627; --gold-soft: rgba(255,182,39,0.16);
+    --good: #4ade80; --good-soft: rgba(74,222,128,0.15); --bad: #e5484d; --bad-soft: rgba(229,72,77,0.15);
+    --warn: var(--gold); --radius: 14px; --radius-sm: 10px;
+    --shadow: rgba(0,0,0,0.4);
   }
   * { box-sizing: border-box; }
   body {
-    background: radial-gradient(circle at 20% -10%, #1a2036 0%, var(--bg) 45%);
-    color: var(--text); font-family: -apple-system, "Segoe UI", Inter, sans-serif;
+    background: radial-gradient(ellipse 900px 500px at 50% -5%, var(--panel) 0%, var(--bg) 60%);
+    color: var(--text); font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", sans-serif;
     margin: 0; min-height: 100vh;
   }
   header {
     position: sticky; top: 0; z-index: 20;
-    background: rgba(11,13,18,0.9); backdrop-filter: blur(12px);
+    background: rgba(27,22,20,0.88); backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
     padding: 14px 28px;
   }
   .header-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .brand { display: flex; align-items: center; gap: 9px; }
-  .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
-  h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: 4px; }
+  .brand-icon { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; }
+  h1 { margin: 0; line-height: 0; }
+  .wordmark { height: 22px; width: auto; display: block; }
 
   select, button, input[type="text"] {
     background: var(--panel); color: var(--text); border: 1px solid var(--border);
@@ -37,9 +46,9 @@
   input[type="text"] { cursor: text; min-width: 260px; }
   input[type="text"]:focus { outline: none; border-color: var(--accent); }
   select { min-width: 200px; }
-  select:hover, button:hover:not(:disabled) { border-color: #3d4256; }
-  button.primary { background: var(--accent); border: none; font-weight: 600; color: #0b0d12; }
-  button.primary:hover:not(:disabled) { background: #7f9bff; }
+  select:hover, button:hover:not(:disabled) { border-color: var(--border-hover); }
+  button.primary { background: var(--accent); border: none; font-weight: 600; color: var(--text); box-shadow: 0 2px 10px rgba(255,90,31,0.3); }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
   button:disabled { opacity: 0.4; cursor: default; }
   button:active:not(:disabled) { transform: scale(0.97); }
   button.secondary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
@@ -52,8 +61,39 @@
     border: none; background: transparent; border-radius: 999px; padding: 7px 13px;
     font-size: 12.5px; color: var(--muted); font-weight: 600;
   }
-  .mode-switch button.active { background: var(--accent); color: #0b0d12; }
+  .mode-switch button.active { background: var(--accent); color: var(--text); }
   .mode-switch button:hover:not(.active) { background: var(--panel-2); color: var(--text); }
+
+  .rhythm-switch {
+    display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 2px;
+  }
+  .rhythm-switch button {
+    flex: 1; min-width: 0; border: none; background: transparent; border-radius: 999px; padding: 5px 4px;
+    font-size: 10px; color: var(--muted); font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .rhythm-switch button.active { background: var(--accent); color: var(--text); }
+  .rhythm-switch button:hover:not(.active):not(:disabled) { background: var(--panel-2); color: var(--text); }
+  .rhythm-switch button:disabled { opacity: 0.6; cursor: default; }
+
+  .color-swatches { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+  .swatch {
+    width: 22px; height: 22px; border-radius: 50%; padding: 0; cursor: pointer;
+    border: 2px solid var(--border); box-shadow: none; transition: border-color 0.15s, transform 0.1s;
+  }
+  .swatch:hover:not(:disabled) { border-color: var(--border-hover); transform: scale(1.08); }
+  .swatch.active { border-color: var(--text); }
+  .swatch:disabled { opacity: 0.5; cursor: default; }
+  .clip-subtitle-swatches { padding: 0 2px; }
+  .clip-subtitle-swatches .swatch { width: 16px; height: 16px; border-width: 1.5px; }
+
+  .download-all-bar { margin-bottom: 16px; display: none; }
+  .download-all-btn {
+    display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 10px;
+    text-decoration: none; font-size: 13px; font-weight: 700; background: var(--good-soft);
+    border: 1px solid var(--good); color: var(--good);
+  }
+  .download-all-btn:hover { background: rgba(74,222,128,0.25); }
 
   .mode-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
   .mode-tabs button {
@@ -63,6 +103,15 @@
   .mode-tabs button .sub { font-size: 11.5px; font-weight: 500; color: var(--muted); }
   .mode-tabs button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .mode-tabs button.active .sub { color: var(--accent); opacity: 0.8; }
+
+  .hint-text { font-size: 11.5px; color: var(--muted); padding-left: 2px; }
+  .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 5px 11px; font-size: 11.5px; font-weight: 600; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .chip:hover:not(.active) { color: var(--text); border-color: var(--border-hover); }
+  .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
   .status-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 16px; }
   .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.8s linear infinite; display: none; flex-shrink: 0; }
@@ -75,6 +124,10 @@
   main { padding: 28px 20px 70px; max-width: 1400px; margin: 0 auto; }
   .empty { color: var(--muted); padding: 100px 20px; text-align: center; font-size: 14px; }
   .empty .spinner { display: inline-block; width: 15px; height: 15px; margin-right: 8px; vertical-align: -2px; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  .big-analyze-btn {
+    padding: 22px 46px; font-size: 19px; font-weight: 700; border-radius: var(--radius-sm);
+  }
 
   /* ---------- DECK VIEW ---------- */
   .deck { display: flex; flex-direction: column; align-items: center; gap: 16px; }
@@ -87,6 +140,7 @@
   .deck-card {
     width: min(360px, 88vw); background: var(--panel); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 4px 20px var(--shadow), 0 1px 3px rgba(0,0,0,0.3);
   }
   .deck-card.done { border-color: var(--good); }
   .deck-video-frame {
@@ -96,12 +150,14 @@
   .deck-video-frame video { width: 100%; height: 100%; object-fit: contain; }
   .top-pick {
     position: absolute; top: 10px; left: 10px; font-size: 11px; font-weight: 700; padding: 4px 10px;
-    border-radius: 999px; background: rgba(245,166,35,0.9); color: #1a1200; z-index: 2;
+    border-radius: 999px; background: var(--gold); color: var(--bg); z-index: 2;
   }
   .final-badge {
-    position: absolute; top: 10px; right: 10px; background: var(--good); color: #06120c;
+    position: absolute; top: 10px; right: 10px; background: var(--good); color: var(--bg);
     font-size: 10.5px; font-weight: 800; padding: 4px 9px; border-radius: 999px; z-index: 2;
+    text-decoration: none; cursor: pointer;
   }
+  .final-badge:hover { background: #6ee89c; }
   .preview-pending { font-size: 12.5px; color: var(--muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 
   .deck-title { font-weight: 700; font-size: 16px; line-height: 1.3; }
@@ -124,16 +180,16 @@
     position: absolute; top: 0; bottom: 0; width: 14px; margin-left: -7px;
     background: var(--accent); border-radius: 4px; cursor: ew-resize; touch-action: none;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 0 0 2px rgba(11,13,18,0.65);
+    box-shadow: 0 0 0 2px rgba(27,22,20,0.65);
   }
-  .scrub-handle::after { content: ''; width: 3px; height: 18px; background: rgba(11,13,18,0.75); border-radius: 2px; }
+  .scrub-handle::after { content: ''; width: 3px; height: 18px; background: rgba(27,22,20,0.75); border-radius: 2px; }
   .scrub-times { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .trim-buttons { display: flex; gap: 6px; }
   .trim-apply {
     flex: 1; padding: 8px; font-size: 12.5px; font-weight: 700;
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
   }
-  .trim-apply.pending { background: var(--accent); border: none; color: #0b0d12; }
+  .trim-apply.pending { background: var(--accent); border: none; color: var(--text); }
   .trim-apply:disabled { opacity: 0.5; }
   .trim-restore {
     padding: 8px 10px; font-size: 12.5px; font-weight: 600;
@@ -141,47 +197,137 @@
   }
   .trim-restore:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
 
+  .micro-cuts { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+  .micro-cuts-hint { font-size: 11px; color: var(--muted); }
+  .micro-cut-item {
+    display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px;
+    cursor: pointer;
+  }
+  .micro-cut-item input { cursor: pointer; accent-color: var(--accent); }
+  .micro-cut-item:has(input:disabled) { opacity: 0.55; cursor: default; }
+  .micro-cuts-status { font-size: 10.5px; color: var(--accent); min-height: 13px; }
+  .micro-cut-apply {
+    width: 100%; padding: 7px; font-size: 12px; font-weight: 700; margin-top: 2px;
+    background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent);
+  }
+  .micro-cut-apply:disabled { opacity: 0.45; }
+
   .deck-actions { display: flex; gap: 10px; }
   .deck-actions button { flex: 1; padding: 13px; font-size: 14px; font-weight: 700; border-radius: 12px; }
   .btn-discard { background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
   .btn-discard:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
-  .btn-use { background: var(--good); border: none; color: #06120c; }
-  .btn-use:hover:not(:disabled) { background: #55e6a5; }
+  .btn-use { background: var(--good); border: none; color: var(--bg); }
+  .btn-use:hover:not(:disabled) { background: #6ee89c; }
 
   .deck-empty { text-align: center; color: var(--muted); padding: 60px 20px; }
   .deck-empty .big { font-size: 34px; margin-bottom: 8px; }
 
   /* ---------- GRID VIEW ---------- */
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 9px; transition: border-color 0.2s; }
-  .card:hover { border-color: #3a3f52; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
+    display: flex; flex-direction: column; gap: 9px; transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .card:hover { border-color: var(--border-hover); box-shadow: 0 6px 20px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25); }
   .card.done { border-color: var(--good); }
   .card-top { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
   .card-title { font-weight: 650; font-size: 14px; line-height: 1.3; }
   .video-frame { width: 100%; aspect-ratio: 9/16; max-height: 380px; border-radius: 10px; background: #000; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; }
   .video-frame video { width: 100%; height: 100%; object-fit: contain; }
   .card button { width: 100%; padding: 10px; font-weight: 600; font-size: 13px; }
+
+  /* ---------- TUTORIAL ---------- */
+  .tutorial-btn { display: flex; align-items: center; gap: 6px; }
+  /* El oscurecido de "todo menos el elemento resaltado" lo hace el
+     box-shadow gigante de .tutorial-highlight (ver abajo) — este overlay
+     va TRANSPARENTE, solo existe para bloquear clicks sobre la página de
+     atrás mientras el tutorial está activo (que el usuario navegue con los
+     botones de la tarjeta, no interactuando a ciegas con lo de abajo). Si
+     este div tuviera su propio fondo oscuro, se sumaría al del highlight y
+     el elemento resaltado quedaría atenuado en vez de brillante. */
+  .tutorial-overlay {
+    position: fixed; inset: 0; z-index: 900; background: transparent;
+    animation: tutFadeIn 0.2s ease-out;
+  }
+  @keyframes tutFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .tutorial-highlight {
+    position: fixed; z-index: 901; border-radius: 12px; pointer-events: none;
+    box-shadow: 0 0 0 4px var(--accent), 0 0 0 9999px rgba(10,7,6,0.72), 0 0 24px 4px rgba(255,90,31,0.55);
+    transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+  }
+  .tutorial-card {
+    position: fixed; z-index: 902; width: min(320px, 88vw); background: var(--panel);
+    border: 1px solid var(--accent); border-radius: var(--radius); padding: 18px 20px;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 10px;
+    transition: top 0.25s ease, left 0.25s ease;
+  }
+  .tutorial-step-count { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: 0.4px; text-transform: uppercase; }
+  .tutorial-title { font-size: 15.5px; font-weight: 800; }
+  .tutorial-body { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .tutorial-nav { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .tutorial-nav button { padding: 8px 14px; font-size: 12.5px; }
+  .tutorial-nav .tutorial-skip { margin-left: auto; background: transparent; border: none; color: var(--muted); text-decoration: underline; padding: 8px 4px; }
+  .tutorial-nav .tutorial-skip:hover { color: var(--text); }
+  .tutorial-dots { display: flex; gap: 5px; }
+  .tutorial-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--border); }
+  .tutorial-dots span.done { background: var(--accent); }
 </style>
 </head>
 <body>
 <header>
   <div class="header-row">
-    <div class="brand"><span class="dot"></span><h1>Revisión de clips</h1></div>
+    <div class="brand"><img class="brand-icon" src="assets/logo-icon.svg" alt=""><h1><img class="wordmark" src="assets/logo-full.png" alt="prendé"></h1></div>
+    <button type="button" id="tutorialReplayBtn" class="secondary tutorial-btn" title="Volver a ver el tutorial guiado">🎓 Tutorial</button>
     <select id="videoSelect"></select>
-    <select id="categorySelect" title="Ajusta el criterio de selección al tipo de contenido">
-      <option value="general">🎙 Entrevista / Podcast</option>
+    <input type="text" id="videoNameInput" placeholder="nombrar este video..." title="Ponele un nombre a este video para reconocerlo en la lista — si lo dejás vacío usa el nombre del archivo" style="width:160px;">
+    <select id="categorySelect" title="Opcional: ajustá el criterio de selección al tipo de contenido. Si no estás seguro, dejalo en 'Automático'.">
+      <option value="general">🧭 Automático / Otra</option>
       <option value="streaming">🎮 Streaming / Gaming / IRL</option>
       <option value="educativo">🎓 Educativo / Tutorial</option>
       <option value="comedia">😂 Comedia / Sketch</option>
       <option value="motivacion">✨ Motivación / Storytelling</option>
       <option value="opinion">🗣 Opinión / Debate / Noticias</option>
+      <option value="reaccion">😲 Reacción / Random-chat (OmeTV, pranks)</option>
     </select>
-    <div class="mode-switch">
-      <button id="modeAudio" class="active">🎧 Solo audio</button>
-      <button id="modeVisual">🎬 Audio + imagen</button>
+    <select id="clipCountSelect" title="Cuántos clips querés — con pocos, la IA es más exigente y solo deja lo mejor; con más, acepta algunos más parejos para completar la cantidad, pero nunca algo vacío.">
+      <option value="5">🎯 5 — curado</option>
+      <option value="10" selected>⚖️ 10 — equilibrado</option>
+      <option value="20">📦 20 — todo lo que haya</option>
+    </select>
+    <select id="editStyleSelect" title="Ritmo a aplicar a TODOS los clips si apretás 'Aplicar a todos' — cada clip también tiene su propio selector individual abajo">
+      <option value="sin_cortes">🎬 Sin cortes internos</option>
+      <option value="balanceado" selected>✂️ Edición balanceada</option>
+      <option value="acelerado">⚡ Ritmo acelerado</option>
+    </select>
+    <button id="applyStyleAllBtn" class="secondary" title="Aplica el ritmo elegido arriba a TODOS los clips de una — cada clip también se puede ajustar individual desde su propia tarjeta">Aplicar a todos</button>
+    <div class="color-swatches" id="subtitleColorSwatches" title="Color de resaltado del subtítulo a aplicar a todos si apretás 'Aplicar a todos' — cada clip también tiene su propio selector individual abajo">
+      <button type="button" class="swatch active" data-color="amarillo" style="background:#ffff00" title="Amarillo"></button>
+      <button type="button" class="swatch" data-color="naranja" style="background:#ff5a1f" title="Naranja (marca)"></button>
+      <button type="button" class="swatch" data-color="blanco" style="background:#ffffff" title="Blanco"></button>
+      <button type="button" class="swatch" data-color="verde" style="background:#4ade80" title="Verde"></button>
     </div>
+    <button id="applySubtitleColorAllBtn" class="secondary" title="Aplica el color elegido arriba a TODOS los clips de una">Aplicar a todos</button>
+    <select id="speedSelect" title="Rápido: solo audio+texto, el más veloz. Medio: suma imagen pero liviano (menos preciso). Completo: imagen a máximo detalle, el más lento.">
+      <option value="rapido">🎧 Rápido — solo audio</option>
+      <option value="medio">⚡ Medio — audio + imagen liviano</option>
+      <option value="completo" selected>🎬 Completo — audio + imagen a fondo</option>
+    </select>
     <button id="analyzeBtn" class="primary">Analizar</button>
     <button id="reanalyzeBtn" class="secondary">Re-analizar</button>
+  </div>
+  <div class="header-row" style="margin-top: 10px; align-items: flex-start;">
+    <div style="flex:1; min-width:340px; display:flex; flex-direction:column; gap:7px;">
+      <input type="text" id="instructionInput" style="width:100%" placeholder='🔍 o pedile algo puntual a la IA: "los momentos donde se ríe fuerte"...'>
+      <div class="hint-text">Opcional — si lo dejás vacío, la IA busca los mejores momentos sola. Probá con alguna de estas:</div>
+      <div class="chip-row">
+        <button type="button" class="chip" data-instruction="risas fuertes y reacciones exageradas">😂 Risas fuertes</button>
+        <button type="button" class="chip" data-instruction="momentos de tensión, discusión o enojo">🔥 Tensión / discusión</button>
+        <button type="button" class="chip" data-instruction="las mejores respuestas o frases más picantes">💬 Frases picantes</button>
+        <button type="button" class="chip" data-instruction="momentos donde alguien se sorprende o queda en shock">😮 Sorpresa / shock</button>
+      </div>
+    </div>
   </div>
   <div class="header-row" style="margin-top: 10px;">
     <input type="file" id="fileUpload" accept="video/*" style="display:none">
@@ -193,24 +339,32 @@
   <div class="status-row">
     <span class="spinner" id="statusSpinner"></span>
     <span id="status"></span>
+    <span id="etaText" style="font-size:12px;color:var(--muted);"></span>
+    <span id="costIndicator" style="font-size:12px;color:var(--muted);margin-left:auto;" title="Costo real de API (OpenAI) gastado procesando este video"></span>
     <div class="progress-bar" id="progressBar"><div id="progressFill" style="width:0%"></div></div>
   </div>
 </header>
 <main>
+  <div class="download-all-bar" id="downloadAllBar">
+    <a class="download-all-btn" id="downloadAllBtn" href="#" download>⬇ Descargar todos los finalizados (<span id="downloadAllCount">0</span>)</a>
+  </div>
   <div class="mode-tabs">
     <button id="tabDeck" class="active">👆 Modo Descarte<span class="sub">uno por uno, elegís sí/no</span></button>
     <button id="tabGrid">🎬 Modo Multicámara<span class="sub">todos los clips juntos</span></button>
   </div>
-  <div id="content" class="empty">Elegí un video y apretá Analizar.</div>
+  <div id="content" class="empty">Elegí un video y apretá Analizar. La categoría y el pedido a la IA son opcionales.</div>
 </main>
 
 <script>
 const videoSelect = document.getElementById('videoSelect');
+const videoNameInput = document.getElementById('videoNameInput');
+const etaText = document.getElementById('etaText');
 const categorySelect = document.getElementById('categorySelect');
+const clipCountSelect = document.getElementById('clipCountSelect');
+const editStyleSelect = document.getElementById('editStyleSelect');
 const analyzeBtn = document.getElementById('analyzeBtn');
 const reanalyzeBtn = document.getElementById('reanalyzeBtn');
-const modeAudio = document.getElementById('modeAudio');
-const modeVisual = document.getElementById('modeVisual');
+const speedSelect = document.getElementById('speedSelect');
 const tabDeck = document.getElementById('tabDeck');
 const tabGrid = document.getElementById('tabGrid');
 const statusEl = document.getElementById('status');
@@ -223,14 +377,20 @@ const uploadBtn = document.getElementById('uploadBtn');
 const ytUrl = document.getElementById('ytUrl');
 const ytBtn = document.getElementById('ytBtn');
 const uploadStatus = document.getElementById('uploadStatus');
+const instructionInput = document.getElementById('instructionInput');
 
-let useVisual = false;
 let viewMode = localStorage.getItem('viewMode') || 'deck';
 let polling = null;
 let clips = [];
 let deckPos = 0;
 let currentVideoStem = null;
 let currentCategory = null;
+let videoDurations = {}; // stem -> segundos, para estimar tiempo de análisis
+let analysisStartedAt = null;
+let analysisEstimateSeconds = null;
+let currentInstruction = null;
+
+function getInstruction() { return instructionInput.value.trim() || null; }
 
 if (viewMode === 'grid') {
   tabGrid.classList.add('active');
@@ -245,11 +405,98 @@ function setViewMode(mode) {
   render();
 }
 
-modeAudio.onclick = () => { useVisual = false; modeAudio.classList.add('active'); modeVisual.classList.remove('active'); };
-modeVisual.onclick = () => { useVisual = true; modeVisual.classList.add('active'); modeAudio.classList.remove('active'); };
 tabDeck.onclick = () => setViewMode('deck');
 tabGrid.onclick = () => setViewMode('grid');
 categorySelect.onchange = () => { if (videoSelect.value) loadCandidates(videoSelect.value); };
+
+// El ritmo es POR CLIP (selector en cada tarjeta) — este botón es la única
+// forma de aplicar el mismo nivel a TODOS de una, y es una acción explícita:
+// elegir el nivel en el dropdown de arriba NO dispara nada solo, hay que
+// apretar el botón. Así nunca te pisa sin querer un ajuste que ya habías
+// hecho a mano en un clip puntual.
+const applyStyleAllBtn = document.getElementById('applyStyleAllBtn');
+applyStyleAllBtn.onclick = async () => {
+  if (!clips.length) return;
+  const style = editStyleSelect.value;
+  const label = editStyleSelect.options[editStyleSelect.selectedIndex].textContent;
+  applyStyleAllBtn.disabled = true;
+  editStyleSelect.disabled = true;
+  setBusy(true);
+  for (let i = 0; i < clips.length; i++) {
+    statusEl.textContent = `Aplicando "${label}" a todos (${i + 1}/${clips.length})...`;
+    await setClipEditStyle(clips[i], style);
+  }
+  statusEl.textContent = '';
+  setBusy(false);
+  applyStyleAllBtn.disabled = false;
+  editStyleSelect.disabled = false;
+  render();
+};
+
+// Color del subtítulo: mismo patrón que el ritmo — selector individual en
+// cada tarjeta (abajo) para elegir por clip, y este de acá arriba es solo
+// para la acción explícita "aplicar a todos". Elegir una pastilla acá NO
+// aplica nada solo, hay que apretar "Aplicar a todos".
+async function setClipSubtitleColor(c, color) {
+  try {
+    const res = await fetch(`/api/set_subtitle_color/${currentVideoStem}/${c.index}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ color, category: currentCategory, instruction: currentInstruction }),
+    });
+    const data = await res.json();
+    if (data.preview_url) {
+      c.preview_url = data.preview_url;
+      c.filmstrip_url = data.filmstrip_url;
+      c.rendered_url = null;
+    }
+    c.subtitle_color = data.subtitle_color || color;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+const subtitleSwatches = document.querySelectorAll('#subtitleColorSwatches .swatch');
+subtitleSwatches.forEach(sw => {
+  sw.onclick = () => {
+    subtitleSwatches.forEach(s => s.classList.toggle('active', s === sw));
+  };
+});
+
+const applySubtitleColorAllBtn = document.getElementById('applySubtitleColorAllBtn');
+applySubtitleColorAllBtn.onclick = async () => {
+  if (!clips.length) return;
+  const active = document.querySelector('#subtitleColorSwatches .swatch.active');
+  const color = active ? active.dataset.color : 'amarillo';
+  applySubtitleColorAllBtn.disabled = true;
+  subtitleSwatches.forEach(s => s.disabled = true);
+  setBusy(true);
+  for (let i = 0; i < clips.length; i++) {
+    statusEl.textContent = `Aplicando color de subtítulo a todos (${i + 1}/${clips.length})...`;
+    await setClipSubtitleColor(clips[i], color);
+  }
+  statusEl.textContent = '';
+  setBusy(false);
+  applySubtitleColorAllBtn.disabled = false;
+  subtitleSwatches.forEach(s => s.disabled = false);
+  render();
+};
+
+instructionInput.addEventListener('change', () => { if (videoSelect.value) loadCandidates(videoSelect.value); });
+instructionInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); instructionInput.blur(); } });
+instructionInput.addEventListener('input', () => {
+  document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
+});
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.onclick = () => {
+    const wasActive = chip.classList.contains('active');
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    instructionInput.value = wasActive ? '' : chip.dataset.instruction;
+    if (!wasActive) chip.classList.add('active');
+    instructionInput.focus();
+  };
+});
 
 function setBusy(busy, pct) {
   statusSpinner.classList.toggle('active', busy);
@@ -261,39 +508,149 @@ function setBusy(busy, pct) {
   }
 }
 
-async function loadVideos() {
+let videoList = [];
+
+// Solo repuebla el <select> y el cache local — no toca el estado de qué
+// video está activo ni dispara ninguna carga de candidatos, así dos llamadas
+// seguidas nunca se pisan (era la causa de que después de bajar un video de
+// YouTube quedara seleccionado uno viejo: loadVideos() disparaba una carga
+// de candidatos vieja sin esperarla, que después pisaba el estado nuevo).
+async function refreshVideoList() {
   const res = await fetch('/api/videos');
-  const videos = await res.json();
-  videoSelect.innerHTML = videos.map(v =>
-    `<option value="${v.stem}">${v.name}${v.has_candidates ? ' ✓' : ''}</option>`
+  videoList = await res.json();
+  videoSelect.innerHTML = videoList.map(v =>
+    `<option value="${v.stem}">${v.display_name || v.name}${v.has_candidates ? ' ✓' : ''}</option>`
   ).join('');
+  videoDurations = {};
+  for (const v of videoList) {
+    if (typeof v.duration === 'number') videoDurations[v.stem] = v.duration;
+  }
+  return videoList;
+}
+
+function emptyStateHtml(msg) {
+  return `<div class="empty-state">
+    <p>${msg}</p>
+    <button type="button" id="bigAnalyzeBtn" class="primary big-analyze-btn">🎬 Analizar audio + imagen</button>
+  </div>`;
+}
+
+async function loadVideos() {
+  const videos = await refreshVideoList();
+  if (!videos.length) {
+    content.className = 'empty';
+    content.textContent = 'Subí un video o pegá un link de YouTube para arrancar.';
+    return;
+  }
   const withCandidates = videos.find(v => v.has_candidates);
   if (withCandidates) {
     videoSelect.value = withCandidates.stem;
     loadCandidates(withCandidates.stem);
+  } else {
+    videoSelect.value = videos[0].stem;
+    showEmptyAnalyzePrompt();
   }
 }
 
-async function selectFreshVideo(stem) {
-  await loadVideos();
-  videoSelect.value = stem;
+function showEmptyAnalyzePrompt() {
   currentVideoStem = null;
   currentCategory = null;
   clips = [];
   content.className = 'empty';
-  content.textContent = 'Video listo. Elegí categoría y apretá Analizar.';
+  content.innerHTML = emptyStateHtml('Video listo. Categoría y pedido a la IA son opcionales.');
+  const btn = document.getElementById('bigAnalyzeBtn');
+  if (btn) btn.onclick = () => startAnalysisFromBigButton();
+  const cur = videoList.find(v => v.stem === videoSelect.value);
+  videoNameInput.value = (cur && cur.display_name && cur.display_name !== cur.stem) ? cur.display_name : '';
+}
+
+async function selectFreshVideo(stem) {
+  await refreshVideoList();
+  videoSelect.value = stem;
+  showEmptyAnalyzePrompt();
 }
 
 uploadBtn.onclick = () => fileUpload.click();
+
+const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024; // 8MB por pedazo
+
+function uploadIdFor(file) {
+  // nombre+tamaño alcanza para reconocer "es el mismo archivo" en un
+  // reintento, sin necesitar sesión — si el usuario vuelve a elegir el
+  // mismo video después de que se cortó la conexión, retoma solo.
+  return `${file.name}-${file.size}`.replace(/[^\w.-]/g, '_').slice(0, 200);
+}
+
+async function putChunk(uploadId, offset, chunk) {
+  const res = await fetch(`/api/upload_chunk/${uploadId}?offset=${offset}`, {
+    method: 'POST', body: chunk,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(data.error || `error subiendo (HTTP ${res.status})`), { receivedBytes: data.received_bytes });
+  }
+  return res.json();
+}
+
+async function uploadFileResumable(file) {
+  const uploadId = uploadIdFor(file);
+  const statusRes = await fetch(`/api/upload_status/${uploadId}`);
+  let offset = (await statusRes.json()).received_bytes || 0;
+  if (offset > 0 && offset < file.size) {
+    uploadStatus.textContent = `Retomando subida cortada (${(offset / 1e6).toFixed(0)}MB ya subidos)...`;
+  }
+
+  while (offset < file.size) {
+    const chunk = file.slice(offset, offset + UPLOAD_CHUNK_SIZE);
+    const CHUNK_RETRIES = 4;
+    let lastErr = null;
+    let done = false;
+    for (let attempt = 0; attempt < CHUNK_RETRIES && !done; attempt++) {
+      try {
+        const result = await putChunk(uploadId, offset, chunk);
+        offset = result.received_bytes;
+        done = true;
+      } catch (err) {
+        lastErr = err;
+        // offset desincronizado: el server ya tiene más bytes de los que
+        // pensábamos (p. ej. un chunk anterior sí llegó pero la respuesta
+        // se perdió) — nos realineamos con lo que el server reporta y
+        // seguimos, en vez de reintentar a ciegas.
+        if (typeof err.receivedBytes === 'number') {
+          offset = err.receivedBytes;
+          done = true;
+        } else {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    }
+    if (!done) throw lastErr || new Error('no se pudo subir un pedazo del archivo');
+
+    const pct = Math.round((offset / file.size) * 100);
+    setBusy(true, pct);
+    uploadStatus.textContent = `Subiendo... ${pct}%`;
+  }
+
+  const res = await fetch('/api/upload_complete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ upload_id: uploadId, filename: file.name, total_size: file.size }),
+  });
+  setBusy(false);
+  return res.json();
+}
 
 fileUpload.onchange = async () => {
   const file = fileUpload.files[0];
   if (!file) return;
   uploadStatus.textContent = 'Subiendo...';
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch('/api/upload', { method: 'POST', body: formData });
-  const data = await res.json();
+  let data;
+  try {
+    data = await uploadFileResumable(file);
+  } catch (err) {
+    setBusy(false);
+    uploadStatus.textContent = 'Error subiendo (' + err.message + '). Volvé a elegir el mismo archivo para retomar.';
+    return;
+  }
   fileUpload.value = '';
   if (data.stem) {
     uploadStatus.textContent = 'Listo: ' + data.name;
@@ -338,7 +695,19 @@ function pollDownload(jobId) {
   }, 3000);
 }
 
+function updateDownloadAllBar() {
+  const bar = document.getElementById('downloadAllBar');
+  const doneCount = clips.filter(c => c.rendered_url).length;
+  if (!doneCount || !currentVideoStem) { bar.style.display = 'none'; return; }
+  const qs = new URLSearchParams({ category: currentCategory || 'general' });
+  if (currentInstruction) qs.set('instruction', currentInstruction);
+  document.getElementById('downloadAllBtn').href = `/api/download_all/${currentVideoStem}?${qs}`;
+  document.getElementById('downloadAllCount').textContent = doneCount;
+  bar.style.display = 'block';
+}
+
 function render() {
+  updateDownloadAllBar();
   if (!clips.length) return;
   if (viewMode === 'deck') renderDeck(); else renderGrid();
 }
@@ -357,7 +726,12 @@ function visibleSignature() {
 // ---------- SHARED: video + recorte ----------
 function videoInner(c) {
   const src = c.rendered_url || c.preview_url;
-  if (src) return `<video controls muted src="${src}"></video>`;
+  // preload="none": sin esto, el navegador arranca a bajar metadata de
+  // CADA <video> apenas se dibuja — con videos que tienen 40+ candidatos
+  // eso es 40+ descargas simultáneas y la página se pone lenta/pesada.
+  // Con "none" no baja nada hasta que el usuario le da play a ese en
+  // particular.
+  if (src) return `<video controls muted preload="none" src="${src}"></video>`;
   return `<div class="preview-pending"><span class="spinner active"></span>generando vista previa...</div>`;
 }
 
@@ -365,8 +739,22 @@ function trimPanelHtml(c) {
   if (!c.preview_url || !c.filmstrip_url) {
     return `<div class="trim-panel trim-panel-empty"></div>`;
   }
+  const style = c.edit_style || 'balanceado';
+  const subColor = c.subtitle_color || 'amarillo';
+  const subColorHex = { amarillo: '#ffff00', naranja: '#ff5a1f', blanco: '#ffffff', verde: '#4ade80' };
   return `
     <div class="trim-panel">
+      <div class="rhythm-switch" data-current="${style}">
+        <button type="button" data-style="sin_cortes" class="${style === 'sin_cortes' ? 'active' : ''}">Sin cortes</button>
+        <button type="button" data-style="balanceado" class="${style === 'balanceado' ? 'active' : ''}">Balanceado</button>
+        <button type="button" data-style="acelerado" class="${style === 'acelerado' ? 'active' : ''}">Acelerado</button>
+      </div>
+      <div class="color-swatches clip-subtitle-swatches" title="Color del subtítulo de este clip">
+        ${Object.entries(subColorHex).map(([name, hex]) => `
+          <button type="button" class="swatch ${subColor === name ? 'active' : ''}" data-color="${name}" style="background:${hex}" title="${name}"></button>
+        `).join('')}
+      </div>
+      ${c.auto_cut_info ? `<div class="hint-text">✂ ${c.auto_cut_info.count} pausa${c.auto_cut_info.count > 1 ? 's' : ''} recortada${c.auto_cut_info.count > 1 ? 's' : ''} automático (${c.auto_cut_info.saved_seconds}s ahorrados) — "↺ Restaurar" vuelve a la versión sin cortar.</div>` : ''}
       <div class="scrubber" data-duration="${c.duration}">
         <img src="${c.filmstrip_url}" draggable="false">
         <div class="scrub-mask left" style="width:0%"></div>
@@ -382,6 +770,7 @@ function trimPanelHtml(c) {
         <button class="trim-apply" disabled>Aplicar corte</button>
         <button class="trim-restore" ${c.has_original ? '' : 'disabled'} title="Volver al corte original de la IA">↺ Restaurar</button>
       </div>
+      <div class="micro-cuts" data-loaded="false"></div>
     </div>
   `;
 }
@@ -454,7 +843,7 @@ function attachTrim(cardEl, c, onApplied) {
     if (startFrac <= 0.003 && endFrac >= 0.997) return;
     applyBtn.disabled = true;
     applyBtn.textContent = 'Cortando...';
-    const body = { category: currentCategory };
+    const body = { category: currentCategory, instruction: currentInstruction };
     const deltaStart = startFrac * duration;
     const deltaEnd = -(1 - endFrac) * duration;
     if (deltaStart > 0.05) body.delta_start = deltaStart;
@@ -480,7 +869,7 @@ function attachTrim(cardEl, c, onApplied) {
       restoreBtn.textContent = 'Restaurando...';
       const res = await fetch(`/api/restore/${currentVideoStem}/${c.index}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: currentCategory }),
+        body: JSON.stringify({ category: currentCategory, instruction: currentInstruction }),
       });
       const data = await res.json();
       if (data.preview_url) {
@@ -490,11 +879,144 @@ function attachTrim(cardEl, c, onApplied) {
         c.has_original = !!data.has_original;
         c.rendered_url = null;
       }
+      if (data.edit_style) c.edit_style = data.edit_style;
       if (onApplied) onApplied();
     };
   }
 
+  attachRhythmSwitch(cardEl, c, onApplied);
+  attachSubtitleSwatches(cardEl, c, onApplied);
+  loadMicroCuts(cardEl, c, onApplied);
   updateUI();
+}
+
+// Mismo criterio que el ritmo: color de subtítulo POR CLIP, individual.
+function attachSubtitleSwatches(cardEl, c, onApplied) {
+  const row = cardEl.querySelector('.clip-subtitle-swatches');
+  if (!row) return;
+  row.querySelectorAll('.swatch').forEach(sw => {
+    sw.onclick = async () => {
+      if (sw.classList.contains('active')) return;
+      const color = sw.dataset.color;
+      row.querySelectorAll('.swatch').forEach(s => s.disabled = true);
+      const data = await setClipSubtitleColor(c, color);
+      if (data && onApplied) onApplied();
+    };
+  });
+}
+
+// Ritmo de edición (sin cortes / balanceado / acelerado) ahora es POR CLIP,
+// no global — así se puede intercalar (un clip acelerado, otro sin tocar)
+// sin que uno le pise el ajuste al otro. El dropdown de arriba del header
+// sigue existiendo pero solo como acción explícita "aplicar a todos", nunca
+// se dispara solo con tocarlo.
+function attachRhythmSwitch(cardEl, c, onApplied) {
+  const switchEl = cardEl.querySelector('.rhythm-switch');
+  if (!switchEl) return;
+  switchEl.querySelectorAll('button').forEach(btn => {
+    btn.onclick = async () => {
+      if (btn.classList.contains('active')) return;
+      const style = btn.dataset.style;
+      switchEl.querySelectorAll('button').forEach(b => b.disabled = true);
+      btn.textContent = '…';
+      const data = await setClipEditStyle(c, style);
+      if (data && onApplied) onApplied();
+    };
+  });
+}
+
+// Comparte la llamada al servidor entre el selector por-clip y el botón
+// "aplicar a todos" del header, para no duplicar la lógica de request.
+async function setClipEditStyle(c, style) {
+  try {
+    const res = await fetch(`/api/set_edit_style/${currentVideoStem}/${c.index}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edit_style: style, category: currentCategory, instruction: currentInstruction }),
+    });
+    const data = await res.json();
+    if (data.preview_url) {
+      c.preview_url = data.preview_url;
+      c.filmstrip_url = data.filmstrip_url;
+      c.duration = data.duration;
+      c.has_original = !!data.has_original;
+      c.auto_cut_info = data.auto_cut_info || null;
+      c.rendered_url = null;
+    }
+    c.edit_style = data.edit_style || style;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+function fmtMMSS(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Pausas/silencios internos detectados dentro del clip ya elegido, SIEMPRE
+// calculadas sobre la versión completa (nunca sobre el estado ya cortado) —
+// así tildada=cortada / destildada=presente es reversible en cualquier
+// dirección, no solo la primera vez.
+async function loadMicroCuts(cardEl, c, onApplied) {
+  const container = cardEl.querySelector('.micro-cuts');
+  if (!container) return;
+  const style = c.edit_style || 'balanceado';
+  if (style === 'sin_cortes') { container.innerHTML = ''; return; }
+  const qs = new URLSearchParams({ category: currentCategory, edit_style: style });
+  if (currentInstruction) qs.set('instruction', currentInstruction);
+  let cuts = [];
+  try {
+    const res = await fetch(`/api/micro_cuts/${currentVideoStem}/${c.index}?${qs}`);
+    if (res.ok) cuts = (await res.json()).cuts || [];
+  } catch (e) { /* sin sugerencias si falla, no es crítico */ }
+  if (!container.isConnected || !cuts.length) { container.innerHTML = ''; return; }
+
+  const plural = cuts.length > 1 ? 's' : '';
+  container.innerHTML = `
+    <div class="micro-cuts-hint">✂ ${cuts.length} pausa${plural} detectada${plural} a este ritmo — tildada = cortada. Destildá para devolverla:</div>
+    ${cuts.map((cut, i) => `
+      <label class="micro-cut-item">
+        <input type="checkbox" data-idx="${i}" ${cut.cut ? 'checked' : ''}>
+        pausa de ${(cut.end - cut.start).toFixed(1)}s en el ${fmtMMSS(cut.start)}
+      </label>
+    `).join('')}
+    <div class="micro-cuts-status"></div>
+  `;
+
+  // Se aplica solo al tildar/destildar (con una pequeña espera para no
+  // mandar un render por cada click si vas tildando varias seguidas) — no
+  // hace falta un botón aparte. No es instantáneo (cada cambio sigue
+  // necesitando pasar por ffmpeg), pero no requiere un paso manual extra.
+  const statusEl2 = container.querySelector('.micro-cuts-status');
+  let debounceTimer = null;
+  container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.onchange = () => {
+      clearTimeout(debounceTimer);
+      statusEl2.textContent = 'esperando más cambios...';
+      debounceTimer = setTimeout(async () => {
+        const checked = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+          .map(el => cuts[parseInt(el.dataset.idx, 10)])
+          .map(cut => [cut.start, cut.end]);
+        container.querySelectorAll('input[type="checkbox"]').forEach(el => el.disabled = true);
+        statusEl2.textContent = 'aplicando...';
+        const res = await fetch(`/api/apply_micro_cuts/${currentVideoStem}/${c.index}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: currentCategory, instruction: currentInstruction, cuts: checked }),
+        });
+        const data = await res.json();
+        if (data.preview_url) {
+          c.preview_url = data.preview_url;
+          c.filmstrip_url = data.filmstrip_url;
+          c.duration = data.duration;
+          c.has_original = !!data.has_original;
+          c.rendered_url = null;
+        }
+        if (onApplied) onApplied();
+      }, 700);
+    };
+  });
 }
 
 async function useCandidate(c, btn) {
@@ -502,7 +1024,7 @@ async function useCandidate(c, btn) {
   btn.textContent = 'Generando...';
   const res = await fetch(`/api/render/${currentVideoStem}/${c.index}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ category: currentCategory }),
+    body: JSON.stringify({ category: currentCategory, instruction: currentInstruction }),
   });
   const data = await res.json();
   if (data.url) {
@@ -533,7 +1055,7 @@ function renderDeck() {
         <div class="deck-card ${c.rendered_url ? 'done' : ''}" data-index="${c.index}">
           <div class="video-frame deck-video-frame">
             ${isTop ? '<div class="top-pick">🔥 recomendado</div>' : ''}
-            ${c.rendered_url ? '<div class="final-badge">✓ versión final</div>' : ''}
+            ${c.rendered_url ? `<a class="final-badge" href="${c.rendered_url}" download title="Descargar el video">⬇ descargar</a>` : ''}
             ${videoInner(c)}
           </div>
           <div class="deck-title">${c.title}</div>
@@ -586,8 +1108,9 @@ function renderGrid() {
         ${c.hook_type ? `<span class="tag">${c.hook_type}</span>` : ''}
         <span class="tag dur-tag">${c.duration}s</span>
       </div>
+      ${c.verdict ? `<div class="deck-verdict">${c.verdict}</div>` : ''}
       <div class="video-frame">
-        ${c.rendered_url ? '<div class="final-badge">✓ final</div>' : ''}
+        ${c.rendered_url ? `<a class="final-badge" href="${c.rendered_url}" download title="Descargar el video">⬇ descargar</a>` : ''}
         ${videoInner(c)}
       </div>
       ${trimPanelHtml(c)}
@@ -612,7 +1135,7 @@ function refreshGridCard(cardEl, c) {
   cardEl.classList.toggle('done', !!c.rendered_url);
   cardEl.dataset.sig = cardSig(c);
   const frame = cardEl.querySelector('.video-frame');
-  if (frame) frame.innerHTML = (c.rendered_url ? '<div class="final-badge">✓ final</div>' : '') + videoInner(c);
+  if (frame) frame.innerHTML = (c.rendered_url ? `<a class="final-badge" href="${c.rendered_url}" download title="Descargar el video">⬇ descargar</a>` : '') + videoInner(c);
   const durTag = cardEl.querySelector('.dur-tag');
   if (durTag) durTag.textContent = `${c.duration}s`;
   const trimPanel = cardEl.querySelector('.trim-panel');
@@ -634,18 +1157,46 @@ function patchGrid() {
 }
 
 // ---------- DATA LOADING ----------
+async function updateCostIndicator(videoStem) {
+  const el = document.getElementById('costIndicator');
+  try {
+    const res = await fetch(`/api/cost/${videoStem}`);
+    const data = await res.json();
+    if (!data.api_calls) { el.textContent = ''; return; }
+    const approx = data.all_priced ? '' : '~';
+    el.textContent = `💰 ${approx}$${data.total_usd.toFixed(3)} en API (${data.api_calls} llamadas)`;
+  } catch (err) {
+    el.textContent = '';
+  }
+}
+
 async function loadCandidates(videoStem, opts = {}) {
   const silent = !!opts.silent;
   const category = categorySelect.value;
-  const res = await fetch(`/api/candidates/${videoStem}?category=${category}`);
-  if (!res.ok) { content.className = 'empty'; content.textContent = 'Todavía no se analizó este video con esta categoría.'; clips = []; return; }
+  const instruction = getInstruction();
+  const qs = new URLSearchParams({ category });
+  if (instruction) qs.set('instruction', instruction);
+  const res = await fetch(`/api/candidates/${videoStem}?${qs}`);
+  if (!res.ok) {
+    currentVideoStem = null;
+    currentCategory = null;
+    clips = [];
+    content.className = 'empty';
+    content.innerHTML = emptyStateHtml('Todavía no se analizó este video con esta búsqueda.');
+    const btn = document.getElementById('bigAnalyzeBtn');
+    if (btn) btn.onclick = () => startAnalysisFromBigButton();
+    updateDownloadAllBar();
+    return;
+  }
   const data = await res.json();
   data.sort((a, b) => b.score - a.score);
 
-  const isNewVideo = currentVideoStem !== videoStem || currentCategory !== category;
+  const isNewVideo = currentVideoStem !== videoStem || currentCategory !== category || currentInstruction !== instruction;
   currentVideoStem = videoStem;
   currentCategory = category;
+  currentInstruction = instruction;
   if (isNewVideo) deckPos = 0;
+  if (isNewVideo) updateCostIndicator(videoStem);
 
   const sigBefore = (silent && !isNewVideo && viewMode === 'deck') ? visibleSignature() : null;
   clips = data;
@@ -658,49 +1209,91 @@ async function loadCandidates(videoStem, opts = {}) {
     // cambiaron en vez de reconstruir todo, así no cortamos un video que
     // se está reproduciendo en otra card mientras el resto sigue generando.
     patchGrid();
+    updateDownloadAllBar();
   } else if (sigBefore !== sigAfter) {
     render();
+  } else {
+    updateDownloadAllBar();
   }
 
   const pending = clips.some(c => !c.preview_url);
   setBusy(pending);
   if (pending) {
-    const statusRes = await fetch(`/api/status/${videoStem}?category=${category}`);
+    const statusRes = await fetch(`/api/status/${videoStem}?${qs}`);
     const statusData = await statusRes.json();
     if (!['transcribiendo', 'analizando (esto puede tardar)'].includes(statusData.status) &&
         !(statusData.status || '').startsWith('generando vistas previas')) {
       await fetch(`/api/generate_previews/${videoStem}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category }),
+        body: JSON.stringify({ category, instruction }),
       });
-      pollStatus(videoStem, category);
+      pollStatus(videoStem, category, instruction);
     } else {
       setTimeout(() => loadCandidates(videoStem, { silent: true }), 2500);
     }
   }
 }
 
-async function pollStatus(videoStem, category) {
+// Estimación de tiempo total, no una medición real (el backend no reporta
+// progreso incremental en transcripción/análisis) — calibrada contra corridas
+// reales de esta noche (~3-5min para 11min de video, sin contención de GPU).
+// Se banca hasta 92% mientras dure la estimación, nunca llega a 100% solo con
+// tiempo — el 100% real solo lo pone la confirmación de "listo" del backend.
+function estimateAnalysisSeconds(durationSeconds) {
+  if (!durationSeconds) return 240;
+  return Math.max(60, durationSeconds * 0.4 + 45);
+}
+
+function fmtMinSec(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}m ${r}s` : `${r}s`;
+}
+
+function updateEtaDisplay() {
+  if (!analysisStartedAt || !analysisEstimateSeconds) { etaText.textContent = ''; return; }
+  const elapsed = (Date.now() - analysisStartedAt) / 1000;
+  const pct = Math.min(92, (elapsed / analysisEstimateSeconds) * 100);
+  setBusy(true, pct);
+  const remaining = analysisEstimateSeconds - elapsed;
+  etaText.textContent = remaining > 0
+    ? `~${fmtMinSec(remaining)} restantes (estimado)`
+    : 'un poco más...';
+}
+
+async function pollStatus(videoStem, category, instruction) {
   clearInterval(polling);
   setBusy(true);
+  const qs = new URLSearchParams({ category });
+  if (instruction) qs.set('instruction', instruction);
   polling = setInterval(async () => {
-    const res = await fetch(`/api/status/${videoStem}?category=${category}`);
+    const res = await fetch(`/api/status/${videoStem}?${qs}`);
     const data = await res.json();
     statusEl.textContent = data.status;
     const match = (data.status || '').match(/\((\d+)\/(\d+)\)/);
-    if (match) setBusy(true, (parseInt(match[1]) / parseInt(match[2])) * 100);
+    if (match) {
+      setBusy(true, (parseInt(match[1]) / parseInt(match[2])) * 100);
+      etaText.textContent = '';
+    } else if (data.status === 'transcribiendo' || (data.status || '').startsWith('analizando')) {
+      updateEtaDisplay();
+    }
     if ((data.status || '').startsWith('generando vistas previas')) {
       loadCandidates(videoStem, { silent: true });
     }
     if (data.status === 'listo') {
       clearInterval(polling);
       setBusy(false);
+      etaText.textContent = '';
+      analysisStartedAt = null;
       analyzeBtn.disabled = false;
       reanalyzeBtn.disabled = false;
       loadCandidates(videoStem);
     } else if (data.status === 'error') {
       clearInterval(polling);
       setBusy(false);
+      etaText.textContent = '';
+      analysisStartedAt = null;
       analyzeBtn.disabled = false;
       reanalyzeBtn.disabled = false;
       statusEl.textContent = 'Error: ' + data.error;
@@ -708,28 +1301,267 @@ async function pollStatus(videoStem, category) {
   }, 2000);
 }
 
+// El botón grande dice "audio + imagen" — que haga exactamente eso, sin
+// depender de que el selector de arriba ya esté en el modo correcto.
+function startAnalysisFromBigButton() {
+  speedSelect.value = 'completo';
+  startAnalysis(false);
+}
+
+// Estimación aproximada del multiplicador de tiempo por velocidad — "rápido"
+// no toca imagen (mucho más veloz), "medio" samplea liviano y sin refinar
+// detalle, "completo" es la base ya calibrada contra corridas reales.
+const SPEED_TIME_FACTOR = { rapido: 0.25, medio: 0.55, completo: 1.0 };
+
 async function startAnalysis(force) {
   const videoStem = videoSelect.value;
   const category = categorySelect.value;
+  const instruction = getInstruction();
+  const speed = speedSelect.value;
   if (!videoStem) return;
   analyzeBtn.disabled = true;
   reanalyzeBtn.disabled = true;
-  setBusy(true);
+  analysisStartedAt = Date.now();
+  const factor = SPEED_TIME_FACTOR[speed] || 1.0;
+  analysisEstimateSeconds = estimateAnalysisSeconds(videoDurations[videoStem]) * factor;
+  setBusy(true, 0);
   content.className = 'empty';
   content.innerHTML = '<span class="spinner active"></span>Analizando...';
   await fetch(`/api/analyze/${videoStem}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ use_visual: useVisual, category, force }),
+    body: JSON.stringify({
+      use_visual: speed !== 'rapido', category, instruction, force, speed,
+      target_clips: parseInt(clipCountSelect.value, 10),
+    }),
   });
-  pollStatus(videoStem, category);
+  pollStatus(videoStem, category, instruction);
 }
 
 analyzeBtn.onclick = () => startAnalysis(false);
 reanalyzeBtn.onclick = () => startAnalysis(true);
-videoSelect.onchange = () => loadCandidates(videoSelect.value);
+videoSelect.onchange = () => {
+  const cur = videoList.find(v => v.stem === videoSelect.value);
+  videoNameInput.value = (cur && cur.display_name && cur.display_name !== cur.stem) ? cur.display_name : '';
+  loadCandidates(videoSelect.value);
+};
 
-loadVideos();
+async function saveVideoName() {
+  const stem = videoSelect.value;
+  if (!stem) return;
+  const name = videoNameInput.value.trim();
+  const res = await fetch(`/api/set_video_name/${stem}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json();
+  const opt = videoSelect.querySelector(`option[value="${stem}"]`);
+  if (opt) {
+    const hadCheck = opt.textContent.trim().endsWith('✓');
+    opt.textContent = data.display_name + (hadCheck ? ' ✓' : '');
+  }
+  const cur = videoList.find(v => v.stem === stem);
+  if (cur) cur.display_name = data.display_name;
+}
+videoNameInput.addEventListener('change', saveVideoName);
+
+// ---------- TUTORIAL ----------
+// Video de ejemplo que ya viene analizado (cacheado del lado del servidor)
+// para que un usuario nuevo vea resultados reales sin tener que subir nada
+// ni esperar un análisis — mismo criterio "no siempre te van a mandar un
+// link de YouTube" pero al revés: acá SÍ podemos precargar un caso ya
+// resuelto para que el tutorial no dependa de gastar tiempo/crédito real.
+// NOTA: es un video de prueba real ya usado en esta sesión, no contenido
+// con licencia para demo pública — si esto sale a producción con usuarios
+// reales, conviene reemplazarlo por un video propio/con permiso.
+const DEMO_VIDEO_STEM = 'Pah7u3Ja-lY';
+const DEMO_CATEGORY = 'streaming';
+const TUTORIAL_DONE_KEY = 'prende_tutorial_done_v1';
+
+// Cada paso apunta a un selector real de la interfaz — si el elemento no
+// existe todavía (p. ej. la barra de "descargar todos" antes de que haya
+// algún clip finalizado) el paso se salta solo en vez de trabarse.
+const TUTORIAL_STEPS = [
+  {
+    sel: '#videoSelect',
+    title: 'Elegí tu video',
+    body: 'Acá elegís qué video vas a trabajar. Te dejamos uno de ejemplo ya analizado para que veas cómo funciona sin tener que subir nada todavía.',
+  },
+  {
+    sel: '#categorySelect',
+    title: 'Categoría de contenido',
+    body: 'Si tu video es de un tipo particular (streaming, entrevista, comedia...) elegilo acá — ajusta qué busca la IA como "buen momento". Si no estás seguro, dejalo en Automático.',
+  },
+  {
+    sel: '#clipCountSelect',
+    title: 'Cuántos clips querés',
+    body: 'Con pocos clips la IA es más exigente y deja solo lo mejor. Con más, se relaja un poco para completar la cantidad — pero nunca te va a dar algo vacío.',
+  },
+  {
+    sel: '#editStyleSelect',
+    title: 'Ritmo de edición',
+    body: 'Elegí qué tan cortado querés el ritmo interno de los clips (pausas recortadas o no). El botón de al lado lo aplica a TODOS de una — también se puede ajustar clip por clip más abajo.',
+  },
+  {
+    sel: '#subtitleColorSwatches',
+    title: 'Color del subtítulo',
+    body: 'El color de resaltado de la palabra que se está diciendo en el momento, estilo karaoke. También ajustable por clip individual.',
+  },
+  {
+    sel: '#speedSelect',
+    title: 'Velocidad de análisis',
+    body: 'Rápido analiza solo audio y texto (el más veloz). Completo suma análisis de imagen cuadro por cuadro — más lento, pero encuentra momentos que el audio solo no detecta.',
+  },
+  {
+    sel: '#analyzeBtn',
+    title: 'Analizar',
+    body: 'Con todo elegido arriba, apretás acá y la IA busca los mejores momentos del video. "Re-analizar" fuerza una corrida nueva aunque ya haya un resultado guardado.',
+  },
+  {
+    sel: '#instructionInput',
+    title: 'Pedile algo puntual a la IA',
+    body: 'Opcional: en vez de dejar que busque sola, pedile algo específico como "los momentos donde se ríe fuerte". Probá alguno de los ejemplos de abajo.',
+  },
+  {
+    sel: '#uploadBtn',
+    title: 'Tu propio contenido',
+    body: 'Cuando quieras probar con un video tuyo: subilo desde acá, o pegá directamente un link de YouTube al lado.',
+  },
+  {
+    sel: '.mode-tabs',
+    title: 'Dos formas de revisar',
+    body: 'Modo Descarte te muestra los clips de a uno para decidir rápido con sí/no. Modo Multicámara te muestra todos juntos en una grilla.',
+    before: () => setViewMode('deck'),
+  },
+  {
+    sel: '.deck-card',
+    title: 'La tarjeta del clip',
+    body: 'Cada clip trae su tipo de gancho, duración, y el veredicto de la IA explicando por qué lo eligió (o qué le faltó).',
+  },
+  {
+    sel: '.scrubber',
+    title: 'Recorte manual',
+    body: 'Si el corte automático no quedó perfecto, arrastrá los bordes de la tira de miniaturas para ajustarlo vos mismo, y confirmá con "Aplicar corte".',
+  },
+  {
+    sel: '.deck-actions',
+    title: 'Usar o descartar',
+    body: '"Usar este" genera la versión final con subtítulos quemados y zoom, lista para descargar. "Descartar" pasa al siguiente candidato sin generar nada.',
+  },
+];
+
+let tutorialStepIndex = 0;
+let tutorialEls = null;
+
+function ensureTutorialEls() {
+  if (tutorialEls) return tutorialEls;
+  const overlay = document.createElement('div');
+  overlay.className = 'tutorial-overlay';
+  const highlight = document.createElement('div');
+  highlight.className = 'tutorial-highlight';
+  const card = document.createElement('div');
+  card.className = 'tutorial-card';
+  document.body.append(overlay, highlight, card);
+  tutorialEls = { overlay, highlight, card };
+  return tutorialEls;
+}
+
+function positionTutorial(target) {
+  const { highlight, card } = ensureTutorialEls();
+  const r = target.getBoundingClientRect();
+  const pad = 8;
+  highlight.style.top = (r.top - pad) + 'px';
+  highlight.style.left = (r.left - pad) + 'px';
+  highlight.style.width = (r.width + pad * 2) + 'px';
+  highlight.style.height = (r.height + pad * 2) + 'px';
+
+  // La tarjeta va debajo del elemento si hay lugar, si no arriba — y se
+  // acomoda horizontalmente para no salirse de la pantalla.
+  const cardWidth = Math.min(320, window.innerWidth * 0.88);
+  let top = r.bottom + 16;
+  const estCardHeight = 190;
+  if (top + estCardHeight > window.innerHeight) top = Math.max(12, r.top - estCardHeight - 16);
+  let left = Math.min(Math.max(12, r.left), window.innerWidth - cardWidth - 12);
+  card.style.top = top + 'px';
+  card.style.left = left + 'px';
+}
+
+function renderTutorialStep() {
+  const step = TUTORIAL_STEPS[tutorialStepIndex];
+  if (!step) { endTutorial(); return; }
+  if (step.before) { try { step.before(); } catch (e) {} }
+
+  const target = document.querySelector(step.sel);
+  if (!target) {
+    // El elemento todavía no existe (p. ej. clips sin cargar) — saltamos
+    // este paso en vez de dejar el tutorial trabado.
+    tutorialStepIndex++;
+    renderTutorialStep();
+    return;
+  }
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+  const { card } = ensureTutorialEls();
+  const isFirst = tutorialStepIndex === 0;
+  const isLast = tutorialStepIndex === TUTORIAL_STEPS.length - 1;
+  card.innerHTML = `
+    <div class="tutorial-step-count">Paso ${tutorialStepIndex + 1} de ${TUTORIAL_STEPS.length}</div>
+    <div class="tutorial-title">${step.title}</div>
+    <div class="tutorial-body">${step.body}</div>
+    <div class="tutorial-nav">
+      <button type="button" class="secondary" id="tutPrev" ${isFirst ? 'disabled' : ''}>‹ Anterior</button>
+      <button type="button" class="primary" id="tutNext">${isLast ? 'Listo ✓' : 'Siguiente ›'}</button>
+      <button type="button" class="tutorial-skip" id="tutSkip">Saltar tutorial</button>
+    </div>
+  `;
+  document.getElementById('tutPrev').onclick = () => { tutorialStepIndex--; renderTutorialStep(); };
+  document.getElementById('tutNext').onclick = () => {
+    if (isLast) { endTutorial(); return; }
+    tutorialStepIndex++; renderTutorialStep();
+  };
+  document.getElementById('tutSkip').onclick = () => endTutorial();
+
+  // Se espera al scroll suave antes de fijar la posición final.
+  setTimeout(() => positionTutorial(target), 260);
+  positionTutorial(target);
+}
+
+function onTutorialResize() {
+  if (!tutorialEls) return;
+  const step = TUTORIAL_STEPS[tutorialStepIndex];
+  if (!step) return;
+  const target = document.querySelector(step.sel);
+  if (target) positionTutorial(target);
+}
+window.addEventListener('resize', onTutorialResize);
+window.addEventListener('scroll', onTutorialResize, true);
+
+async function startTutorial() {
+  tutorialStepIndex = 0;
+  await selectFreshVideo(DEMO_VIDEO_STEM);
+  categorySelect.value = DEMO_CATEGORY;
+  await loadCandidates(DEMO_VIDEO_STEM);
+  ensureTutorialEls();
+  renderTutorialStep();
+}
+
+function endTutorial() {
+  localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+  if (tutorialEls) {
+    tutorialEls.overlay.remove();
+    tutorialEls.highlight.remove();
+    tutorialEls.card.remove();
+    tutorialEls = null;
+  }
+}
+
+document.getElementById('tutorialReplayBtn').onclick = () => startTutorial();
+
+if (!localStorage.getItem(TUTORIAL_DONE_KEY)) {
+  startTutorial();
+} else {
+  loadVideos();
+}
 </script>
 </body>
 </html>

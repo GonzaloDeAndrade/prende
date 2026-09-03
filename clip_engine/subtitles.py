@@ -103,7 +103,16 @@ def _group_words(words: list[dict[str, Any]], per_caption: int) -> list[list[dic
     return groups
 
 
-_HIGHLIGHT_COLOR = "&H00FFFF&"  # amarillo (formato ASS &HBBGGRR&)
+_HIGHLIGHT_COLOR = "&H00FFFF&"  # amarillo (formato ASS &HBBGGRR&) — default si no se elige otro
+
+# Paleta chica a propósito (no un selector de color libre): son las opciones
+# que se exponen en la interfaz. "naranja" es el color de marca de Prende.
+SUBTITLE_COLOR_PRESETS = {
+    "amarillo": "&H00FFFF&",
+    "naranja": "&H1F5AFF&",
+    "blanco": "&HFFFFFF&",
+    "verde": "&H4DE87A&",
+}
 
 
 def build_clip_subtitles(
@@ -112,6 +121,7 @@ def build_clip_subtitles(
     out_path: Path,
     video_width: int | None = None,
     video_height: int | None = None,
+    highlight_color: str = _HIGHLIGHT_COLOR,
 ) -> Path:
     """Genera un .ass con los subtítulos del clip a partir de una o dos partes
     (rangos no contiguos del video original que se pegan con un corte seco).
@@ -156,7 +166,7 @@ def build_clip_subtitles(
                     w_end = offset + max(w_start - offset + 0.05, w["end"] - part_start)
 
                 rendered = [
-                    f"{{\\c{_HIGHLIGHT_COLOR}}}{t}{{\\r}}" if j == i else t
+                    f"{{\\c{highlight_color}}}{t}{{\\r}}" if j == i else t
                     for j, t in enumerate(tokens)
                 ]
                 text = " ".join(rendered)

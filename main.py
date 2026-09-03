@@ -13,12 +13,19 @@ def main() -> None:
     parser.add_argument("--visual", action="store_true", help="Suma análisis visual (frames) a la selección")
     parser.add_argument(
         "--category", default="general",
-        choices=["general", "streaming", "educativo", "comedia", "motivacion", "opinion"],
+        choices=["general", "streaming", "educativo", "comedia", "motivacion", "opinion", "reaccion"],
         help="Ajusta el criterio de selección al género del video",
+    )
+    parser.add_argument(
+        "--instruction", default=None,
+        help='Pedido libre en criollo, p. ej. "dame los momentos donde se ríe fuerte"',
     )
     args = parser.parse_args()
 
-    run_pipeline(args.video, force=args.force, use_visual=args.visual, category=args.category)
+    run_pipeline(
+        args.video, force=args.force, use_visual=args.visual,
+        category=args.category, custom_instruction=args.instruction,
+    )
 
 
 if __name__ == "__main__":

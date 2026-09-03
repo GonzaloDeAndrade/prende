@@ -9,6 +9,7 @@ from .config import CLIPS_DIR, TMP_DIR
 from .cutter import render_clip
 from .subtitles import build_clip_subtitles
 from .transcribe import transcribe
+from .video_validate import validate_video
 
 
 def _slugify(text: str) -> str:
@@ -18,11 +19,19 @@ def _slugify(text: str) -> str:
 
 
 def run_pipeline(
-    video_path: str | Path, force: bool = False, use_visual: bool = False, category: str = "general",
+    video_path: str | Path,
+    force: bool = False,
+    use_visual: bool = False,
+    category: str = "general",
+    custom_instruction: str | None = None,
 ) -> list[Path]:
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(video_path)
+
+    ok, msg = validate_video(video_path)
+    if not ok:
+        raise RuntimeError(f"video inválido, no se puede procesar: {msg}")
 
     print(f"\n=== 1/3 Transcribiendo: {video_path.name} ===")
     transcript = transcribe(video_path, force=force)
@@ -30,7 +39,7 @@ def run_pipeline(
     print(f"\n=== 2/3 Analizando transcripción con LLM ===")
     clips = analyze(
         transcript, video_path.stem, video_path=video_path,
-        use_visual=use_visual, category=category, force=force,
+        use_visual=use_visual, category=category, custom_instruction=custom_instruction, force=force,
     )
 
     print(f"\n=== 3/3 Cortando {len(clips)} clips ===")

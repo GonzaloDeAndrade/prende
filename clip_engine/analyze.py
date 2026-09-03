@@ -11,6 +11,7 @@ interrupción, sin tocar el criterio de dónde arranca y dónde cierra cada part
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unicodedata
@@ -21,6 +22,9 @@ from openai import OpenAI
 
 from .audio_energy import detect_energy_spikes
 from .config import TRANSCRIPTS_DIR, settings
+from .cost_tracker import record_usage
+from .heatmap import get_heatmap
+from .openai_retry import call_with_backoff
 from .visual_analyze import analyze_visual
 from .prompts import (
     CATEGORY_ADDENDUMS,
@@ -30,6 +34,7 @@ from .prompts import (
     RANKING_USER_TEMPLATE,
     SYSTEM_PROMPT,
     USER_PROMPT_TEMPLATE,
+    custom_instruction_block,
 )
 
 
@@ -43,14 +48,38 @@ def _energy_tag(seg: dict[str, Any], energy_spikes: list[tuple[float, float, flo
     return ""
 
 
+_RHYTHM_PAUSE_SECONDS = 2.0  # pausa que suele preceder a un remate/frase de impacto (timing cómico/dramático)
+_RHYTHM_MAX_WORDS = 4  # una frase CORTA después de la pausa es lo que la hace sentir un remate, no una divagación cualquiera
+# Calibrado contra transcripciones reales: con umbrales más laxos (1.0s/8 palabras)
+# marcaba ~20% de las líneas en contenido conversacional normal — demasiado como
+# para ser una señal distintiva. Con estos valores da ~1-2% en entrevista/streaming
+# (contenido "de comer" tipo desafíos gastronómicos es una excepción esperada, tiene
+# pausas naturales de masticar que suben la tasa, no es un bug).
+
+
+def _rhythm_tag(prev_seg: dict[str, Any] | None, seg: dict[str, Any]) -> str:
+    """Señal de ritmo del habla — no del contenido: una pausa larga seguida \
+    de una frase corta suele ser timing de remate (cómico o dramático), \
+    igual que el pico de volumen es una señal aparte del contenido semántico. \
+    Se calcula con los timestamps que ya tenemos, no necesita nada nuevo."""
+    if prev_seg is None:
+        return ""
+    gap = seg["start"] - prev_seg["end"]
+    if gap < _RHYTHM_PAUSE_SECONDS or len(seg["text"].split()) > _RHYTHM_MAX_WORDS:
+        return ""
+    return " (⏸ pausa larga antes de esta frase corta — posible remate/frase de impacto)"
+
+
 def _numbered_transcript(
     segments: list[dict[str, Any]], energy_spikes: list[tuple[float, float, float]] | None = None,
 ) -> str:
     energy_spikes = energy_spikes or []
-    lines = [
-        f"[{i} | {seg['start']:.1f}s -> {seg['end']:.1f}s]{_energy_tag(seg, energy_spikes)} {seg['text']}"
-        for i, seg in enumerate(segments)
-    ]
+    lines = []
+    prev_seg = None
+    for i, seg in enumerate(segments):
+        tag = _energy_tag(seg, energy_spikes) + _rhythm_tag(prev_seg, seg)
+        lines.append(f"[{i} | {seg['start']:.1f}s -> {seg['end']:.1f}s]{tag} {seg['text']}")
+        prev_seg = seg
     return "\n".join(lines)
 
 
@@ -67,6 +96,24 @@ _DANGLING_REF_WORDS = {
     "esto", "eso", "esos", "estos", "esta", "estas", "este", "ese", "esa",
     "dicho", "dicha", "dichos", "dichas", "tal", "tales", "aquello", "aquellos", "aquellas",
 }
+
+
+_FILLER_MIN_REPEAT = 2  # una sola palabra repetida esta cantidad de veces o más es puro relleno
+
+
+def _is_filler_segment(text: str) -> bool:
+    """Detecta muletillas o ruido puramente repetitivo (p. ej. "pau, pau, \
+    pau", "eh, eh, eh") — no aportan contexto real, así que no deberían \
+    quedar como el borde de un clip. Solo se usa para recortar los BORDES \
+    (nunca el medio) después de que el resto del ajuste ya corrió, así que \
+    no hace falta que sea perfecto: en el peor caso, deja pasar una muletilla \
+    ocasional.
+    """
+    words = [w.strip(".,;:¿?¡!()\"'").lower() for w in text.split()]
+    words = [w for w in words if w]
+    if not words:
+        return True
+    return len(set(words)) == 1 and len(words) >= _FILLER_MIN_REPEAT
 
 
 def _starts_with_dangling_ref(text: str) -> bool:
@@ -152,16 +199,107 @@ def _fit_clip(
     def total_dur() -> float:
         return sum(segments[hi]["end"] - segments[lo]["start"] for lo, hi in parts)
 
+    def effective_dur() -> float:
+        """Como total_dur(), pero sin contar huecos internos de silencio real
+        (>= el mismo umbral que después usa el auto-recorte de pausas) como
+        si ya fueran contenido. Sin esto, estirar el clip hasta el mínimo
+        podía "cumplir" el número de segundos tragándose un silencio grande
+        de un tirón — el auto-recorte lo sacaba después y el clip quedaba
+        muy por debajo del mínimo real (pasó con un clip de 10s "de
+        duración" que terminó en 4.8s tras el recorte, con un hueco de 5.3s
+        escondido DENTRO de un solo segmento de faster-whisper, entre dos
+        palabras — por eso esto mira gaps a nivel palabra, como hace
+        `detect_micro_cuts`, no a nivel segmento: un segmento largo puede
+        tener un silencio real adentro sin que se note mirando sus bordes.
+        Midiendo así, estirar sigue de largo hasta juntar contenido real,
+        no reloj de pared."""
+        total = total_dur()
+        for lo, hi in parts:
+            words = [w for seg in segments[lo:hi + 1] for w in seg.get("words", [])]
+            for i in range(1, len(words)):
+                gap = words[i]["start"] - words[i - 1]["end"]
+                if gap >= _MICRO_CUT_MIN_GAP:
+                    total -= gap
+        return total
+
     # Si el conjunto quedó corto, estiramos los bordes externos (antes de la
-    # primera parte, después de la última), priorizando contexto previo.
+    # primera parte, después de la última). Proporción 1:1 — antes era 2
+    # para atrás por cada 1 para adelante, pero eso perjudicaba justo a los
+    # candidatos forzados por un pico de audio/visual (un solo índice de
+    # anclaje, sin desarrollo previo real que rescatar): el remate casi
+    # siempre viene DESPUÉS del pico, no antes, y priorizar tanto el
+    # contexto previo hacía que la ventana se quedara corta antes de
+    # llegar a la reacción real. Caso real medido: con el viejo 2:1 la
+    # ventana llegaba hasta el segundo 1805.6 ("Oh, my God") y se quedaba
+    # ahí — con 1:1 llega a 1814.6, alcanzando "la concha de la lora...
+    # ¡sí, señor!", el remate real que antes se perdía.
+    # Tope de seguridad: nunca estirar más allá de un múltiplo generoso de
+    # max_dur en RELOJ DE PARED, sin importar qué diga effective_dur().
+    # Encontrado en vivo (2026-08-21): un segmento roto de faster-whisper de
+    # 51.6s (4 palabras reales, el resto un hueco enorme adentro) hacía que
+    # effective_dur() midiera ~1s de "contenido real" ahí — el loop de
+    # estirado, buscando desesperado más contenido, caminaba tan lejos por
+    # la lista de segmentos que terminaba en una ventana final TOTALMENTE
+    # desconectada del punto de anclaje original (a más de 100s de
+    # distancia, en otro tema del video). Mejor devolver algo corto pero
+    # coherente que algo "completo" pero sin relación con lo que se quiso
+    # anclar.
+    # No es que la ventana se ponga ANCHA (eso ya lo cubre hard_max más
+    # abajo) — el problema real es que se ALEJA del punto de anclaje
+    # original sin acumular duración, porque cada paso mueve UN índice de
+    # segmento y muchos segmentos seguidos pueden tener gaps enormes
+    # también. Por eso el tope se mide contra el ancla ORIGINAL (antes de
+    # cualquier estirado), no contra el ancho de la ventana actual.
+    anchor_lo_idx, anchor_hi_idx = parts[0][0], parts[-1][1]
+    anchor_start = segments[anchor_lo_idx]["start"]
+    anchor_end = segments[anchor_hi_idx]["end"]
+    wall_clock_cap = max_dur * 3
+    # La protección de ancla de abajo (no recortar más allá de anchor_lo_idx/
+    # anchor_hi_idx) solo tiene sentido cuando el ancla es UN segmento (o
+    # muy pocos) sin nada adentro para recortar — el caso real que motivó el
+    # fix: un solo segmento roto de Whisper con duración de reloj de pared
+    # inflada por un hueco interno enorme. Ahí no hay nada más chico que
+    # devolver, así que proteger el segmento entero es lo correcto.
+    #
+    # Pero si el ancla ya abarca MUCHOS segmentos, la duración de reloj de
+    # pared por sí sola NO alcanza como criterio — encontrado en vivo
+    # (2026-08-22): el LLM propuso un rango de 156 a 399 (244 segmentos,
+    # 434.7s — casi seguro una alucinación del LLM, no un momento real).
+    # Usar el mismo chequeo de "¿ya es más grande que hard_max?" ahí
+    # protegía el rango ENTERO, dejando el recorte de abajo sin poder hacer
+    # nada — resultado: un "clip" de más de 7 minutos. La diferencia real
+    # entre los dos casos no es la duración, es si HAY algo adentro para
+    # recortar: con 244 segmentos de sobra para elegir una sub-ventana
+    # razonable, no hace falta proteger el rango completo. Por eso el
+    # criterio es CANTIDAD DE SEGMENTOS del ancla original, no su duración.
+    # El umbral de "≤20 segmentos" (elegido a ojo la madrugada del Ciclo 4,
+    # nunca calibrado contra un caso real de habla lenta) resultó demasiado
+    # generoso: en podcast/entrevista, donde los segmentos de faster-whisper
+    # duran varios segundos cada uno (habla pausada, no cruces rápidos como
+    # en streaming), 19 segmentos pueden ser 71 SEGUNDOS reales de diálogo
+    # continuo — muy por encima de hard_max, y sin embargo protegido de
+    # recortarse. Caso real (2026-08-23, Podium Podcast, entrevista a Sofía
+    # Vergara): un candidato de 19 segmentos/71.3s sobre "Griselda Blanco"
+    # quedó con el score más alto de toda la corrida y `keep=true`, el doble
+    # del máximo permitido. La única situación que de verdad necesita
+    # protección es el ancla de UN SOLO segmento (el caso original: nada más
+    # chico para devolver) — cualquier rango de 2+ segmentos con contenido
+    # real ya tiene de dónde recortar, así que no hace falta protegerlo.
+    anchor_segment_count = anchor_hi_idx - anchor_lo_idx + 1
+    anchor_protected = anchor_segment_count <= 1
+
     step = 0
-    while total_dur() < min_dur and (parts[0][0] > 0 or parts[-1][1] < n - 1):
-        want_back = step % 3 != 2
-        if want_back and parts[0][0] > 0:
+    while effective_dur() < min_dur and (parts[0][0] > 0 or parts[-1][1] < n - 1):
+        back_capped = anchor_start - segments[parts[0][0]]["start"] >= wall_clock_cap
+        fwd_capped = segments[parts[-1][1]]["end"] - anchor_end >= wall_clock_cap
+        if back_capped and fwd_capped:
+            break
+        want_back = step % 2 == 0
+        if want_back and not back_capped and parts[0][0] > 0:
             parts[0][0] -= 1
-        elif parts[-1][1] < n - 1:
+        elif not fwd_capped and parts[-1][1] < n - 1:
             parts[-1][1] += 1
-        elif parts[0][0] > 0:
+        elif not back_capped and parts[0][0] > 0:
             parts[0][0] -= 1
         else:
             break
@@ -169,16 +307,27 @@ def _fit_clip(
 
     # Si se pasa del techo duro, recortamos desde los bordes externos hacia
     # adentro (última parte primero), sin vaciar ninguna parte por completo.
+    # IMPORTANTE: nunca recortar más allá del segmento ancla original
+    # (anchor_lo_idx/anchor_hi_idx). Antes este bucle no tenía ese límite —
+    # con un segmento roto de faster-whisper cuya duración de reloj de pared
+    # YA por sí sola supera hard_max (caso real: 51.66s de un solo segmento
+    # con casi todo hueco adentro, contra un hard_max de 43.75s), el recorte
+    # seguía de largo achicando `hi` mucho más allá del propio punto de
+    # anclaje, dejando una ventana final TOTALMENTE desconectada del
+    # candidato original (a más de 100s de distancia). Con el tope, en el
+    # peor caso el resultado es el segmento ancla tal cual (más largo que
+    # max_dur, pero al menos anclado en el lugar correcto) en vez de basura
+    # en otra parte del video.
     hard_max = max_dur * 1.25
     trimmed_hard_max = False
     while total_dur() > hard_max:
         last_lo, last_hi = parts[-1]
-        if last_hi > last_lo:
+        if last_hi > last_lo and (not anchor_protected or last_hi > anchor_hi_idx):
             parts[-1][1] -= 1
             trimmed_hard_max = True
             continue
         first_lo, first_hi = parts[0]
-        if first_hi > first_lo:
+        if first_hi > first_lo and (not anchor_protected or first_lo < anchor_lo_idx):
             parts[0][0] += 1
             trimmed_hard_max = True
             continue
@@ -203,6 +352,23 @@ def _fit_clip(
             first_lo += 1
         parts[0][0] = first_lo
 
+    # No dejar que un clip arranque o cierre justo en una muletilla repetitiva
+    # ("pau, pau, pau") que quedó pegada ahí por el estiramiento a duración
+    # mínima de más arriba — no aporta nada y se siente arbitrario. Solo se
+    # recortan los bordes, nunca el medio, y solo si sobra contenido real en
+    # esa misma parte (si toda la parte es puro relleno no hay nada que
+    # rescatar acá, y está bien que quede corta: el estiramiento en segundos
+    # de más abajo se encarga de compensar la duración si hace falta).
+    last_lo, last_hi = parts[-1]
+    while last_hi > last_lo and _is_filler_segment(segments[last_hi]["text"]):
+        last_hi -= 1
+    parts[-1][1] = last_hi
+
+    first_lo, first_hi = parts[0]
+    while first_lo < first_hi and _is_filler_segment(segments[first_lo]["text"]):
+        first_lo += 1
+    parts[0][0] = first_lo
+
     windows = [(segments[lo]["start"], segments[hi]["end"]) for lo, hi in parts]
 
     total = sum(e - s for s, e in windows)
@@ -218,6 +384,68 @@ def _fit_clip(
             windows[-1] = (s1, min(duration, e1 + deficit / 2))
 
     return [(round(s, 3), round(e, 3)) for s, e in windows]
+
+
+# Subido de 0.8 a 1.5 el 2026-08-20: sobre 1546 clips reales ya publicados y
+# exitosos del corpus, la pausa interna típica dura 0.88s de mediana y hasta
+# 1.68s en el 75% — con 0.8 se proponía cortar el ritmo normal de casi
+# cualquier clip bueno, no silencio muerto real. Ver mismo cambio en server.py.
+_MICRO_CUT_MIN_GAP = 1.5  # gaps de al menos esto entre palabras consecutivas se proponen como recorte
+
+
+def detect_micro_cuts(
+    segments: list[dict[str, Any]], parts: list[tuple[float, float]], min_gap: float = _MICRO_CUT_MIN_GAP,
+) -> list[tuple[float, float]]:
+    """Encuentra pausas/silencios INTERNOS dentro de un clip ya elegido (no \
+    en los bordes — de eso se encarga `_fit_clip`) que se puedan recortar \
+    para que el ritmo quede más ágil. Usa los timestamps por palabra que ya \
+    tenemos de faster-whisper, no hace falta ningún análisis nuevo de audio.
+
+    Devuelve rangos (start, end) en tiempo ABSOLUTO del video original, \
+    listos para pasarle a `apply_micro_cuts`. Es solo DETECCIÓN — quien \
+    llama decide si se los muestra al usuario como sugerencia editable \
+    (nunca se aplican solos sin que alguien los vea).
+    """
+    words: list[dict[str, Any]] = []
+    for part_start, part_end in parts:
+        for seg in segments:
+            if seg["end"] <= part_start or seg["start"] >= part_end:
+                continue
+            for w in seg.get("words", []):
+                if w["end"] > part_start and w["start"] < part_end:
+                    words.append(w)
+    words.sort(key=lambda w: w["start"])
+
+    cuts: list[tuple[float, float]] = []
+    for i in range(1, len(words)):
+        gap = words[i]["start"] - words[i - 1]["end"]
+        if gap >= min_gap:
+            cuts.append((round(words[i - 1]["end"], 3), round(words[i]["start"], 3)))
+    return cuts
+
+
+def apply_micro_cuts(
+    parts: list[tuple[float, float]], cuts: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Resta los rangos de `cuts` de `parts`, partiendo cada ventana que \
+    cruza un corte en dos. El resultado sigue siendo una lista plana de \
+    ventanas [start, end] — el mismo formato que ya entiende `cutter.py`, \
+    que no tiene límite de cuántas partes acepta. No hace falta tocar nada \
+    del motor de corte para esto."""
+    result = list(parts)
+    for cut_start, cut_end in cuts:
+        new_result: list[tuple[float, float]] = []
+        for p_start, p_end in result:
+            if cut_end <= p_start or cut_start >= p_end:
+                new_result.append((p_start, p_end))
+                continue
+            if cut_start > p_start:
+                new_result.append((p_start, cut_start))
+            if cut_end < p_end:
+                new_result.append((cut_end, p_end))
+        result = new_result
+    result.sort(key=lambda p: p[0])
+    return result
 
 
 def _normalize_text(text: str) -> str:
@@ -304,17 +532,23 @@ def _clip_text(segments: list[dict[str, Any]], clip: dict[str, Any]) -> str:
 
 
 def _validate_ranking(
-    client: OpenAI, segments: list[dict[str, Any]], clips: list[dict[str, Any]], category: str = "general",
+    client: OpenAI,
+    segments: list[dict[str, Any]],
+    clips: list[dict[str, Any]],
+    video_stem: str,
+    category: str = "general",
+    custom_instruction: str | None = None,
+    target_clips: int | None = None,
 ) -> list[dict[str, Any]]:
     """Segunda pasada: compara los candidatos ENTRE SÍ (la primera pasada
     evalúa cada uno aislado) y filtra los que, puestos al lado de los demás,
     son claramente más flojos — aunque técnicamente encajen en una categoría.
 
-    Recibe el mismo `category` que la primera pasada: si no se le suma el
-    addendum acá también, esta segunda pasada juzga con el criterio genérico
-    (le exige "desarrollo claro", "remate", etc.) aunque la primera haya sido
-    más permisiva para el género — eso deshace en la validación lo que el
-    addendum logró en la selección.
+    Recibe el mismo `category`/`custom_instruction` que la primera pasada: si
+    no se le suma el mismo contexto acá también, esta segunda pasada juzga
+    con el criterio genérico (le exige "desarrollo claro", "remate", etc.)
+    aunque la primera haya sido más permisiva o haya priorizado otra cosa —
+    eso deshace en la validación lo que el addendum logró en la selección.
     """
     has_multi_part = any(len(c["parts"]) > 1 for c in clips)
     if len(clips) <= settings.min_clips and not has_multi_part:
@@ -328,17 +562,37 @@ def _validate_ranking(
     )
     user = RANKING_USER_TEMPLATE.format(candidates=listing)
     system = RANKING_SYSTEM_PROMPT + CATEGORY_ADDENDUMS.get(category, "")
+    if target_clips:
+        if target_clips <= 5:
+            system += (
+                f"\n\nEl usuario pidió {target_clips} clips — priorizá MUCHO la calidad sobre "
+                "la cantidad, sé especialmente exigente: quedate solo con lo mejor de lo mejor, "
+                "aunque eso signifique devolver bastante menos de lo pedido."
+            )
+        elif target_clips >= 15:
+            system += (
+                f"\n\nEl usuario pidió {target_clips} clips — podés ser más permisivo que de "
+                "costumbre con candidatos parejos o de relleno (no todos van a ser espectaculares), "
+                "PERO nunca dejes pasar algo genuinamente vacío o sin ningún gancho real solo para "
+                "completar el número."
+            )
+    if custom_instruction:
+        system += custom_instruction_block(custom_instruction)
 
-    print(f"[analyze] validando {len(clips)} candidatos entre sí...")
-    response = client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        response_format={"type": "json_schema", "json_schema": RANKING_JSON_SCHEMA},
-        temperature=0.3,
+    print(f"[analyze] validando {len(clips)} candidatos entre sí (con {settings.openai_ranking_model})...")
+    response = call_with_backoff(
+        lambda: client.chat.completions.create(
+            model=settings.openai_ranking_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_schema", "json_schema": RANKING_JSON_SCHEMA},
+            temperature=0.3,
+        ),
+        label="analyze-ranking",
     )
+    record_usage(video_stem, "ranking", settings.openai_ranking_model, response.usage)
     raw_ranking = json.loads(response.choices[0].message.content).get("ranking", [])
     by_index = {r["index"]: r for r in raw_ranking if 0 <= r["index"] < len(clips)}
 
@@ -384,7 +638,17 @@ def _merge_visual_segments(
             "start": m["start"],
             "end": m["end"],
             "text": f"(visual, sin diálogo) {m['description'].rstrip('.')}.",
-            "words": [],
+            # UNA palabra sintética cubriendo todo el tramo, no lista vacía.
+            # Encontrado en vivo (2026-08-21): con words=[], el detector de
+            # pausas (que mide huecos entre palabras consecutivas) no ve
+            # nada acá — el tramo entero queda invisible para él, y el hueco
+            # entre la última palabra real ANTES y la primera palabra real
+            # DESPUÉS de este momento visual se mide como una pausa gigante
+            # recortable, borrando el momento visual completo (pasó con un
+            # caso real: un highlight de 21s quedó en 0.2s). Con una palabra
+            # sintética ocupando el tramo, el hueco real se mide correcto a
+            # cada lado, sin tragarse el momento visual en el medio.
+            "words": [{"start": m["start"], "end": m["end"], "word": "[visual]"}],
         })
     merged.sort(key=lambda seg: seg["start"])
     return merged
@@ -422,6 +686,61 @@ def _group_nearby_spikes(
         else:
             groups.append([start, end, z])
     return [tuple(g) for g in groups]
+
+
+_HEATMAP_MIN_VALUE = 0.6
+# Encontrado por investigación de competencia (2026-08-21): Opus Clip usa el
+# heatmap de "más repetido" de YouTube como señal PRINCIPAL de selección, no
+# solo de referencia. Validado en vivo esta misma noche: dos momentos reales
+# que el pipeline se perdió (uno marcado a mano por el usuario, otro
+# encontrado después) resultaron ser, medido con este heatmap, de los tramos
+# más repetidos de sus videos — la señal es real. 0.6 es sobre el valor
+# NORMALIZADO de cada video (el punto más visto de CUALQUIER video vale 1.0),
+# así que 0.6 significa "entre los picos más fuertes de ESTE video puntual",
+# no un número absoluto comparable entre videos.
+
+
+def _candidates_from_heatmap(
+    segments: list[dict[str, Any]],
+    heatmap: list[dict[str, Any]] | None,
+    existing_windows: list[list[tuple[float, float]]],
+    min_value: float = _HEATMAP_MIN_VALUE,
+) -> list[dict[str, Any]]:
+    """Mismo mecanismo que los picos de audio/visual, pero con la señal de \
+    audiencia real de YouTube en vez de una heurística nuestra: si un tramo \
+    del heatmap es de los más repetidos de ESTE video y no está cubierto \
+    por ningún candidato existente, lo forzamos a entrar a la validación. \
+    `heatmap` puede ser None (video subido a mano, o sin suficientes vistas \
+    para tener heatmap) — en ese caso simplemente no aporta candidatos, el \
+    resto del pipeline sigue igual.
+    """
+    if not heatmap:
+        return []
+    # A propósito NO se salta picos ya "cubiertos" por un candidato débil
+    # existente (a diferencia de audio/visual) — probado en vivo: dos picos
+    # reales de heatmap quedaron afuera porque un candidato de audio flojo
+    # ya ocupaba un window cercano, y el heatmap es la señal más confiable
+    # que tenemos (datos reales de audiencia, no heurística nuestra). Se
+    # agrega siempre; `_dedupe_by_score` decide después cuál gana si se
+    # superponen — por eso el score es más alto que el de audio/visual
+    # (7, no 6): para que gane el desempate cuando compiten por la misma
+    # ventana.
+    extra: list[dict[str, Any]] = []
+    for p in heatmap:
+        if p.get("value", 0) < min_value:
+            continue
+        mid = (p["start_time"] + p["end_time"]) / 2
+        idx = _nearest_segment_index(segments, mid)
+        extra.append({
+            "parts": [{"start_index": idx, "end_index": idx}],
+            "title": f"(más repetido, {p['value']:.0%}) {segments[idx]['text'].strip()[:40]}",
+            "bridge": "N/A",
+            "bridge_type": "n_a",
+            "hook_type": "gracioso",
+            "score": 7,
+            "reason": f"Candidato agregado porque es uno de los tramos más repetidos reales de este video (heatmap de YouTube, {p['value']:.0%}).",
+        })
+    return extra
 
 
 def _candidates_from_energy_spikes(
@@ -462,6 +781,49 @@ def _candidates_from_energy_spikes(
     return extra
 
 
+_VISUAL_FORCE_MIN_SCORE = 6
+# Mismo piso que "notable" en visual_analyze.py — en la práctica casi todo lo
+# que pasa ese piso puntúa justo 6, así que exigir más acá dejaría el forzado
+# casi vacío.
+
+
+def _candidates_from_visual_moments(
+    segments: list[dict[str, Any]],
+    visual_moments: list[dict[str, Any]],
+    existing_windows: list[list[tuple[float, float]]],
+    min_score: int = _VISUAL_FORCE_MIN_SCORE,
+) -> list[dict[str, Any]]:
+    """Mismo problema que con los picos de audio, pero para lo visual: un \
+    momento notable insertado como pista suelta en una transcripción de \
+    miles de líneas es fácil que el LLM lo pase por alto — sobre todo si NO \
+    hay nada dicho en ese momento (el caso que más importa: alguien conteniendo \
+    la risa en silencio, un gesto, algo que pasa en cámara sin que nadie hable). \
+    Forzamos un candidato directo por cada momento visual fuerte no cubierto \
+    ya por un candidato existente, en vez de confiar en que el LLM repare en \
+    la pista.
+    """
+    existing = [w for windows in existing_windows for w in windows]
+    extra: list[dict[str, Any]] = []
+    for m in visual_moments:
+        if m["score"] < min_score:
+            continue
+        mid = (m["start"] + m["end"]) / 2
+        if any(ws - 5 <= mid <= we + 5 for ws, we in existing):
+            continue
+        idx = _nearest_segment_index(segments, mid)
+        extra.append({
+            "parts": [{"start_index": idx, "end_index": idx}],
+            "title": f"(visual) {m['description']}",
+            "bridge": "N/A",
+            "bridge_type": "n_a",
+            "hook_type": m.get("hook_type", "gracioso"),
+            "score": 6,
+            "reason": f"Candidato agregado por un momento visual notable: {m['description']}",
+        })
+        existing.append((m["start"], m["end"]))
+    return extra
+
+
 def analyze(
     transcript: dict[str, Any],
     video_stem: str,
@@ -469,7 +831,10 @@ def analyze(
     use_visual: bool = False,
     review: bool = False,
     category: str = "general",
+    custom_instruction: str | None = None,
     force: bool = False,
+    target_clips: int | None = None,
+    speed: str = "completo",
 ) -> list[dict[str, Any]]:
     """Le pide al LLM los mejores momentos y devuelve una lista de clips con partes ya calculadas.
 
@@ -481,16 +846,40 @@ def analyze(
     "streaming" para contenido de streaming/gaming/IRL, que no tiene la
     misma estructura narrativa que una entrevista y no debería juzgarse con
     la misma vara). "general" usa el criterio por defecto (entrevista/podcast).
+
+    `custom_instruction` es un pedido libre del usuario en criollo (p. ej.
+    "dame los momentos donde se ríe fuerte", "sacá los que hablan de plata")
+    que se suma AL criterio de categoría, no lo reemplaza — reordena qué se
+    prioriza sin tirar abajo el resto del criterio de calidad.
+
+    `target_clips` es el número de clips finales que pidió el usuario (p. ej.
+    5/10/20 desde la interfaz) — no es solo un tope, cambia la EXIGENCIA: con
+    pocos, la validación se pone más estricta (solo lo mejor de lo mejor); con
+    más, acepta candidatos más parejos/de relleno, siempre que tengan algo
+    real, nunca algo vacío. None usa el default de `settings`. A propósito NO
+    forma parte de la clave de caché (mismo motivo que category/instruction sí
+    lo son: identifican una búsqueda distinta; la cantidad es un parámetro de
+    la corrida) — pedir otra cantidad reusa el caché salvo que se fuerce.
     """
     cache_suffix = "candidates" if review else "clips"
     category_tag = f".{category}" if category != "general" else ""
-    out_path = TRANSCRIPTS_DIR / f"{video_stem}{category_tag}.{cache_suffix}.json"
+    custom_tag = ""
+    if custom_instruction:
+        # hashlib en vez de hash() built-in: hash() varía entre corridas del
+        # proceso (aleatorizado por seguridad), rompería el caché cada vez
+        # que se reinicia el servidor.
+        digest = hashlib.sha1(custom_instruction.strip().lower().encode("utf-8")).hexdigest()[:8]
+        custom_tag = f".custom-{digest}"
+    out_path = TRANSCRIPTS_DIR / f"{video_stem}{category_tag}{custom_tag}.{cache_suffix}.json"
     if out_path.exists() and not force:
         print(f"[analyze] usando selección cacheada: {out_path}")
         return json.loads(out_path.read_text(encoding="utf-8"))
 
     if not settings.openai_api_key:
         raise RuntimeError("Falta OPENAI_API_KEY (definila en tu archivo .env)")
+
+    if speed == "rapido":
+        use_visual = False  # "rápido" es audio+texto solo, sin importar el toggle
 
     client = OpenAI(api_key=settings.openai_api_key)
     segments = transcript["segments"]
@@ -501,28 +890,44 @@ def analyze(
         energy_spikes = detect_energy_spikes(video_path, video_stem, force=force)
         print(f"[analyze] {len(energy_spikes)} picos de energía detectados")
 
+    visual_moments: list[dict[str, Any]] = []
     if use_visual and video_path is not None:
-        visual_moments = analyze_visual(video_path, video_stem, force=force)
+        # "medio" sacrifica densidad de sampleo y el detalle fino de
+        # descripción para ir más rápido — se nota en candidatos visuales
+        # menos específicos, pero corre en una fracción del tiempo.
+        visual_interval = 8.0 if speed == "medio" else None
+        visual_moments = analyze_visual(
+            video_path, video_stem, force=force,
+            interval=visual_interval, skip_refine=(speed == "medio"),
+        )
         segments = _merge_visual_segments(segments, visual_moments)
 
     # Pedimos un pool más amplio que el objetivo final: la segunda pasada
     # (validación comparativa) necesita candidatos de sobra para poder
     # descartar los más flojos en vez de quedarse sin opciones.
-    pool_max = max(settings.max_clips + 3, settings.max_clips * 2)
-    system = SYSTEM_PROMPT.format(min_clips=settings.min_clips, max_clips=pool_max)
+    effective_max_clips = target_clips or settings.max_clips
+    effective_min_clips = min(settings.min_clips, effective_max_clips)
+    pool_max = max(effective_max_clips + 3, effective_max_clips * 2)
+    system = SYSTEM_PROMPT.format(min_clips=effective_min_clips, max_clips=pool_max)
     system += CATEGORY_ADDENDUMS.get(category, "")
+    if custom_instruction:
+        system += custom_instruction_block(custom_instruction)
     user = USER_PROMPT_TEMPLATE.format(numbered_transcript=_numbered_transcript(segments, energy_spikes))
 
     print(f"[analyze] llamando a {settings.openai_model}...")
-    response = client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        response_format={"type": "json_schema", "json_schema": CLIP_JSON_SCHEMA},
-        temperature=0.4,
+    response = call_with_backoff(
+        lambda: client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_schema", "json_schema": CLIP_JSON_SCHEMA},
+            temperature=0.4,
+        ),
+        label="analyze-selection",
     )
+    record_usage(video_stem, "selection", settings.openai_model, response.usage)
 
     raw_clips = json.loads(response.choices[0].message.content).get("clips", [])
 
@@ -596,12 +1001,94 @@ def analyze(
                 continue
             candidates.append({**c, "parts": windows})
 
+    if visual_moments:
+        existing_windows = [c["parts"] for c in candidates]
+        forced_visual = _candidates_from_visual_moments(segments, visual_moments, existing_windows)
+        if forced_visual:
+            print(f"  [analyze] {len(forced_visual)} candidatos forzados por momentos visuales no cubiertos por el LLM")
+        for c in forced_visual:
+            windows = _fit_clip(
+                segments, c["parts"], settings.min_clip_seconds, settings.max_clip_seconds, transcript["duration"],
+            )
+            if not windows:
+                continue
+            candidates.append({**c, "parts": windows})
+
+    heatmap = None
+    if video_path is not None:
+        heatmap = get_heatmap(video_stem)
+        if heatmap:
+            existing_windows = [c["parts"] for c in candidates]
+            forced_heatmap = _candidates_from_heatmap(segments, heatmap, existing_windows)
+            if forced_heatmap:
+                print(f"  [analyze] {len(forced_heatmap)} candidatos forzados por el heatmap de YouTube (más repetido)")
+            for c in forced_heatmap:
+                windows = _fit_clip(
+                    segments, c["parts"], settings.min_clip_seconds, settings.max_clip_seconds, transcript["duration"],
+                )
+                if not windows:
+                    continue
+                candidates.append({**c, "parts": windows})
+
     clips = _dedupe_by_score(candidates)
+
+    # `_dedupe_by_score` puede quedarse con un candidato generado por el LLM
+    # (no por el forzado de heatmap) para una ventana que igual se superpone
+    # con un pico real de audiencia — pasa cuando el candidato del LLM ya
+    # traía un score de generación >= 7, empatando o ganando al del heatmap.
+    # En ese caso se pierde la marca "(más repetido, X%)" en el título Y la
+    # indulgencia especial que le da `RANKING_SYSTEM_PROMPT` a esa marca —
+    # aunque la ventana siga estando físicamente sobre el mismo pico real.
+    # Encontrado en vivo (2026-08-22, `u1O6Av1vO-I`): el pico #1 de todo el
+    # video (202-211s, valor 1.00) terminó cubierto por un candidato del LLM
+    # sin ninguna mención de heatmap, y ese candidato fue RECHAZADO por el
+    # ranking (score 6) — la señal de audiencia real estaba disponible pero
+    # nunca llegó al prompt de validación. Se re-etiqueta cualquier
+    # sobreviviente del dedupe que se superponga con un pico fuerte, sin
+    # importar de qué mecanismo haya salido originalmente.
+    if heatmap:
+        for clip in clips:
+            if "(más repetido" in clip.get("title", ""):
+                continue
+            clip_start = clip["parts"][0][0]
+            clip_end = clip["parts"][-1][1]
+            best = None
+            for p in heatmap:
+                if p.get("value", 0) < _HEATMAP_MIN_VALUE:
+                    continue
+                if p["start_time"] < clip_end and p["end_time"] > clip_start:
+                    if best is None or p["value"] > best["value"]:
+                        best = p
+            if best is not None:
+                clip["title"] = f"(más repetido, {best['value']:.0%}) {clip['title']}"
+                clip["reason"] = (
+                    f"{clip.get('reason', '')} También coincide con uno de los tramos más "
+                    f"repetidos reales de este video (heatmap de YouTube, {best['value']:.0%})."
+                ).strip()
 
     if not clips:
         raise RuntimeError("El LLM no devolvió clips válidos. Revisá el transcript o el prompt.")
 
-    ranked = _validate_ranking(client, segments, clips, category=category)
+    ranked = _validate_ranking(
+        client, segments, clips, video_stem,
+        category=category, custom_instruction=custom_instruction, target_clips=target_clips,
+    )
+
+    # La instrucción de "sé más exigente" en el prompt de validación es una
+    # señal blanda — probado en vivo, pedir 5 devolvió 17 candidatos con
+    # keep=true (el LLM las juzgó buenas una por una, nada lo obliga a
+    # cortar en un número). Acá sí se hace cumplir de verdad: si hay más
+    # "keep=true" que lo pedido, los de menor score se pasan a keep=false
+    # (nunca se los saca de la lista — en modo revisión igual se pueden ver
+    # y elegir a mano, solo dejan de venir pre-marcados como recomendados).
+    if target_clips:
+        currently_kept = [c for c in ranked if c.get("keep", True)]
+        if len(currently_kept) > target_clips:
+            currently_kept.sort(key=lambda c: c.get("final_score", c.get("score", 0)), reverse=True)
+            demote_ids = {id(c) for c in currently_kept[target_clips:]}
+            for c in ranked:
+                if id(c) in demote_ids:
+                    c["keep"] = False
 
     if review:
         # Modo revisión: devolvemos TODOS los candidatos (con keep/score/
